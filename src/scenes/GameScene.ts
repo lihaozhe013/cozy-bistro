@@ -13,7 +13,66 @@ import type {
   SavedPavementTrashState,
   SavedStaffActorState,
 } from "../components/types";
+import {
+  autoShopCheckMs,
+  chefSyncMs,
+  cleaningSeconds,
+  customerWalkPixelsPerSecond,
+  defaultBaseDailyRent,
+  defaultExpansionCostMultiplier,
+  defaultFirstExpansionCost,
+  defaultIngredientUnitCost,
+  defaultItemCostMultiplier,
+  defaultRentPerExpansion,
+  defaultStarterRecipeProfit,
+  defaultTrashDropChance,
+  dishwasherSeconds,
+  eatingSecondsPerVisit,
+  guestBlockedRetryMs,
+  guestRerouteRetryMs,
+  guestSpawnFallbackMs,
+  guestSpawnIntervalScale,
+  guestSpawnMaxMs,
+  guestSpawnMinMs,
+  guestTurnawayRetryMs,
+  kitchenAssignmentMs,
+  legacyExpansionLevel,
+  manualDishwashingSeconds,
+  maxChairsPerTable,
+  maxErrandOrderItems,
+  maxExpansionLevel,
+  maxPavementTrash,
+  maxPedestrians,
+  maxSeatedPersonalOffset,
+  maxStandingPersonalOffset,
+  offlineCapSeconds,
+  offlineMaxServedGuests,
+  offlineMinElapsedSeconds,
+  offlineTrashDropMs,
+  orderHandOffSeconds,
+  pastaUnlockCost,
+  patienceBaseSeconds,
+  patienceMaxSeconds,
+  patienceMinSeconds,
+  patiencePerItemSeconds,
+  paymentSeconds,
+  pedestrianSpawnMaxMs,
+  pedestrianSpawnMinMs,
+  pedestrianWalkPixelsPerSecond,
+  personalSpaceMs,
+  quietSaveDebounceMs,
+  recoveryCheckMs,
+  serviceAssignmentMs,
+  seatedPersonalSpaceRadius,
+  staffWalkPixelsPerSecond,
+  standingPersonalSpaceRadius,
+  starterExpansionLevel,
+  starterGrantTarget,
+  starterMoney,
+  trashRecycleReward,
+} from "../data/balance";
 import { furnitureCatalog, getFurnitureDefinition } from "../data/furniture";
+import { assertContentValidOrWarn } from "../data/contentValidation";
 import { graphicsTheme } from "../data/graphicsTheme";
 import { recipes } from "../data/recipes";
 import {
@@ -35,6 +94,8 @@ import { hydrateRatingHistoryFromSave, maxRatingHistory, ReputationSystem } from
 import { RestaurantGridSystem } from "../systems/RestaurantGridSystem";
 import { SaveSystem } from "../systems/SaveSystem";
 import { defaultPayrollPerStaffPerMinute, StaffSystem, type StaffRole } from "../systems/StaffSystem";
+import { createEntityId, createFurnitureUid, createGuestId, createTicketId } from "../simulation/EntityIds";
+import { gameEvents } from "../simulation/EventBus";
 
 const furnitureAtlasImage = new URL("../assets/atlases/furniture.png", import.meta.url).href;
 const furnitureAtlasData = new URL("../assets/atlases/furniture.json", import.meta.url).href;
@@ -44,14 +105,6 @@ const environmentAtlasImage = new URL("../assets/atlases/environment.png", impor
 const environmentAtlasData = new URL("../assets/atlases/environment.json", import.meta.url).href;
 const uiIconsAtlasImage = new URL("../assets/atlases/ui-icons.png", import.meta.url).href;
 const uiIconsAtlasData = new URL("../assets/atlases/ui-icons.json", import.meta.url).href;
-const maxPedestrians = 8;
-const pedestrianWalkPixelsPerSecond = 68;
-const pedestrianSpawnMinMs = 900;
-const pedestrianSpawnMaxMs = 2100;
-const maxPavementTrash = 30;
-const trashRecycleReward = 2;
-const defaultTrashDropChance = 0.05;
-const offlineTrashDropMs = 3 * 60 * 1000;
 
 type InteractionMode = "build" | "move" | "remove" | "seat" | "cook";
 type StaffTask = "idle" | "cooking" | "serving" | "cleaning" | "payment" | "errand" | "relocating" | "receivingOrder";
@@ -320,33 +373,10 @@ interface PersonVisualTarget {
   moving: boolean;
 }
 
-const defaultIngredientUnitCost = 5;
-const defaultStarterRecipeProfit = 3;
-const defaultItemCostMultiplier = 1;
-const maxErrandOrderItems = 12;
-const starterMoney = 520;
-const starterGrantTarget = 220;
-const pastaUnlockCost = 160;
 const leftPanelX = 28;
 const rightPanelX = 1314;
 const gameWidth = 1600;
 const gameHeight = 900;
-const maxChairsPerTable = 4;
-const customerWalkPixelsPerSecond = 90;
-const staffWalkPixelsPerSecond = 125;
-const orderHandOffSeconds = 0.8;
-const eatingSecondsPerVisit = 30;
-const paymentSeconds = 0.75;
-const cleaningSeconds = 0.8;
-const manualDishwashingSeconds = 2.8;
-const dishwasherSeconds = 2.2;
-const defaultBaseDailyRent = 0;
-const defaultRentPerExpansion = 0;
-const starterExpansionLevel = 0;
-const legacyExpansionLevel = 2;
-const maxExpansionLevel = 8;
-const defaultFirstExpansionCost = 5000;
-const defaultExpansionCostMultiplier = 2;
 const panelFill = 0xfff4dc;
 const panelStroke = 0xd8b98f;
 const panelHeader = 0xead0a0;
@@ -384,10 +414,6 @@ const restaurantZoomStep = 0.1;
 const restaurantZoomCenter = new Phaser.Math.Vector2(826, 500);
 const restaurantCameraYScale = 1;
 const roomShellOutsetPixels = 0;
-const standingPersonalSpaceRadius = 24;
-const seatedPersonalSpaceRadius = 16;
-const maxStandingPersonalOffset = 15;
-const maxSeatedPersonalOffset = 2;
 const statusBubbleLocalY = -114;
 const statusBubbleVisibleMs = 760;
 const statusBubbleFadeMs = 120;
@@ -409,13 +435,6 @@ const mapViewport = {
 };
 const furnitureRenderCoalesceMs = 32;
 const statsRefreshMs = 250;
-const serviceAssignmentMs = 200;
-const kitchenAssignmentMs = 200;
-const recoveryCheckMs = 1000;
-const autoShopCheckMs = 500;
-const chefSyncMs = 1000;
-const personalSpaceMs = 90;
-const quietSaveDebounceMs = 2200;
 
 export class GameScene extends Phaser.Scene {
   private grid!: RestaurantGridSystem;
@@ -621,6 +640,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Fail early on broken content data in development (plan §79). The scene
+    // update loop's error guard surfaces the problem on the debug overlay.
+    assertContentValidOrWarn();
     this.saveSystem = new SaveSystem();
     this.currentSaveSlot = this.registry.get("currentSaveSlot") ?? 1;
     const save = this.saveSystem.load(this.currentSaveSlot);
@@ -2685,6 +2707,7 @@ export class GameScene extends Phaser.Scene {
     this.persistQuietly();
     this.refreshCatalogUiIfReady();
     const message = `${recipe.name} upgraded to level ${level + 1}`;
+    gameEvents.emit("upgrade-purchased", { upgradeId: `recipe-${recipe.id}`, level: level + 1, costText: "ingredients" });
     this.showToast(message, "success");
     this.updateStats(message);
     this.closeRecipeUpgradeModal();
@@ -2705,6 +2728,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.expansionLevel = level;
+    gameEvents.emit("area-unlocked", { level, name: definition.name, cost });
     this.syncLuxuryUnlocks();
     this.normalizeWallMountedFurnitureToCurrentWalls();
     this.refreshRestaurantShellAndGrid();
@@ -4801,7 +4825,7 @@ export class GameScene extends Phaser.Scene {
     const currentDoor = this.getEntranceDoorItem();
     const position = this.getEntranceDoorSlotPosition();
     const normalizedDoor: PlacedFurniture = {
-      uid: currentDoor?.uid ?? Phaser.Math.RND.uuid(),
+      uid: currentDoor?.uid ?? createFurnitureUid(),
       furnitureId: definition.id,
       position,
       rotation: target.rotation,
@@ -7887,6 +7911,7 @@ export class GameScene extends Phaser.Scene {
 
     const newStaffIndex = this.staffSystem.addStaff(role);
     this.addStaffActor(role, newStaffIndex);
+    gameEvents.emit("staff-hired", { role, index: newStaffIndex });
     this.persistQuietly();
     this.updateStats(`${this.staffSystem.getStaffRoleLabel(role)} hired`);
   }
@@ -8056,7 +8081,7 @@ export class GameScene extends Phaser.Scene {
   private toggleRestaurantOpen(): void {
     this.restaurantOpen = !this.restaurantOpen;
     if (this.restaurantOpen) {
-      this.nextGuestAt = Math.min(this.nextGuestAt, this.time.now + 1200);
+      this.nextGuestAt = Math.min(this.nextGuestAt, this.time.now + guestRerouteRetryMs);
     }
     this.persistQuietly();
     this.updateStats(this.restaurantOpen ? "Restaurant opened to the public" : "Restaurant closed to new guests");
@@ -8621,6 +8646,7 @@ export class GameScene extends Phaser.Scene {
     if (reason === "payment") {
       this.recordRateSample(this.recentRevenue, amount);
     }
+    gameEvents.emit("money-earned", { amount, source: reason });
   }
 
   private spendMoney(amount: number, reason: SpendReason = "ingredients"): boolean {
@@ -8815,7 +8841,7 @@ export class GameScene extends Phaser.Scene {
     this.actorLayer.add(container);
 
     return {
-      id: Phaser.Math.RND.uuid(),
+      id: createEntityId("staff"),
       role,
       task: "idle",
       container,
@@ -9039,7 +9065,7 @@ export class GameScene extends Phaser.Scene {
     this.actorLayer.add(container);
 
     return {
-      id: Phaser.Math.RND.uuid(),
+      id: createGuestId(),
       container,
       body,
       legs,
@@ -9154,7 +9180,7 @@ export class GameScene extends Phaser.Scene {
     container.add(sprite ? [legs, body, sprite, ...(snackGraphic ? [snackGraphic] : []), bubble] : [legs, body, ...(snackGraphic ? [snackGraphic] : []), bubble]);
     this.exteriorForegroundLayer.add(container);
     const pedestrian: Pedestrian = {
-      id: Phaser.Math.RND.uuid(),
+      id: createEntityId("ped"),
       container,
       body,
       legs,
@@ -9283,7 +9309,7 @@ export class GameScene extends Phaser.Scene {
 
     const descriptor = this.getPavementTrashDescriptor(point);
     this.createPavementTrash({
-      id: Phaser.Math.RND.uuid(),
+      id: createEntityId("trash"),
       kind,
       t: descriptor.t,
       lane: descriptor.lane,
@@ -9318,7 +9344,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     return {
-      id: item.id || Phaser.Math.RND.uuid(),
+      id: item.id || createEntityId("trash"),
       kind,
       t: Phaser.Math.Clamp(Number(item.t) || 0.5, -0.15, 1.15),
       lane: Phaser.Math.Clamp(Number(item.lane) || 60, 18, 108),
@@ -9348,7 +9374,7 @@ export class GameScene extends Phaser.Scene {
     const capacity = maxPavementTrash - existingCount;
     const count = Math.min(capacity, Math.floor((elapsed / offlineTrashDropMs) * dropChance));
     return Array.from({ length: count }, (_unused, index) => ({
-      id: Phaser.Math.RND.uuid(),
+      id: createEntityId("trash"),
       kind: this.getRandomPavementSnackKind(),
       t: Phaser.Math.FloatBetween(0.06, 0.94),
       lane: Phaser.Math.Between(34, 88),
@@ -9590,7 +9616,7 @@ export class GameScene extends Phaser.Scene {
       if (guestTickets.length === 0) {
         this.tickets.push(
           ...guest.orderItems.map((recipe) => ({
-            id: Phaser.Math.RND.uuid(),
+            id: createTicketId(),
             guestId: guest.id,
             recipe,
             state: guest.state === "waitingToOrder" ? ("ordering" as const) : ("queued" as const),
@@ -9623,11 +9649,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     const elapsedSeconds = Math.floor((Date.now() - save.lastSavedAt) / 1000);
-    if (elapsedSeconds < 60) {
+    if (elapsedSeconds < offlineMinElapsedSeconds) {
       return;
     }
 
-    const cappedSeconds = Math.min(elapsedSeconds, 6 * 60 * 60);
+    const cappedSeconds = Math.min(elapsedSeconds, offlineCapSeconds);
     const offlineMinutes = cappedSeconds / 60;
     if (!this.restaurantOpen) {
       if (this.autoShopEnabled && (this.staff.errandBoys ?? 0) > 0) {
@@ -9657,7 +9683,7 @@ export class GameScene extends Phaser.Scene {
       this.applyOfflineShopping(Math.floor(this.getShoppingIngredientsPerMinute() * offlineMinutes));
     }
 
-    const maxServed = Math.min(500, Math.floor(capacityPerMinute * offlineMinutes));
+    const maxServed = Math.min(offlineMaxServedGuests, Math.floor(capacityPerMinute * offlineMinutes));
     let served = 0;
     let revenue = 0;
     for (let index = 0; index < maxServed; index += 1) {
@@ -10152,7 +10178,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!force && !this.restaurantOpen) {
-      this.nextGuestAt = time + 2500;
+      this.nextGuestAt = time + guestBlockedRetryMs;
       return;
     }
 
@@ -10161,7 +10187,7 @@ export class GameScene extends Phaser.Scene {
     const activeSeated = this.guests.filter((guest) => guest.state !== "leaving").length;
     const hasService = this.staff.chefs > 0 && this.staff.waiters > 0;
     if (diningSeats.length === 0 || activeSeated >= diningSeats.length || availableSeats.length === 0 || (!force && !hasService)) {
-      this.nextGuestAt = time + 2500;
+      this.nextGuestAt = time + guestBlockedRetryMs;
       return;
     }
 
@@ -10170,13 +10196,13 @@ export class GameScene extends Phaser.Scene {
       (seat) => this.canPersonReachPoint(entryPoint, seat.seat, true, true) && this.canSeatReceiveService(seat),
     );
     if (!diningSeat) {
-      this.nextGuestAt = time + 2500;
+      this.nextGuestAt = time + guestBlockedRetryMs;
       this.updateStats("No reachable service seats");
       return;
     }
     const availableRecipes = this.getActiveMenuRecipes();
     if (availableRecipes.length === 0) {
-      this.nextGuestAt = time + 2500;
+      this.nextGuestAt = time + guestBlockedRetryMs;
       this.updateStats("Activate at least one recipe in the Recipe Menu");
       return;
     }
@@ -10188,7 +10214,7 @@ export class GameScene extends Phaser.Scene {
       this.customers.recordLost();
       this.recordRateSample(this.recentLostGuests, 1);
       this.recordRateSample(this.recentTurnaways, 1);
-      this.nextGuestAt = time + 2200;
+      this.nextGuestAt = time + guestTurnawayRetryMs;
       this.updateStats(`Visitor wanted ${this.formatRecipeCategory(expectation.category).toLowerCase()}, but it is not on the menu`);
       return;
     }
@@ -10197,17 +10223,21 @@ export class GameScene extends Phaser.Scene {
     const entryPedestrian = this.getPedestrianForEntrance();
     const guest = this.createGuest(entryPedestrian.point.x, entryPedestrian.point.y, diningSeat, orderItems, entryPedestrian.visual);
     this.guests.push(guest);
+    gameEvents.emit("customer-arrived", { guestId: guest.id });
     this.recordRateSample(this.recentGuestEntries, 1);
     this.requestFurnitureRender("guest seated");
     this.tickets.push(
       ...orderItems.map((recipe) => ({
-        id: Phaser.Math.RND.uuid(),
+        id: createTicketId(),
         guestId: guest.id,
         recipe,
         state: "ordering" as const,
         readyAt: 0,
       })),
     );
+    this.tickets
+      .slice(-orderItems.length)
+      .forEach((ticket) => gameEvents.emit("order-created", { ticketId: ticket.id, guestId: guest.id, recipeId: ticket.recipe.id }));
 
     const entered = this.movePerson(guest.container, guest.body, guest.legs, diningSeat.seat, customerWalkPixelsPerSecond, () => {
         guest.state = "waitingToOrder";
@@ -10221,7 +10251,7 @@ export class GameScene extends Phaser.Scene {
       guest.container.destroy();
       this.guests = this.guests.filter((item) => item !== guest);
       this.tickets = this.tickets.filter((ticket) => ticket.guestId !== guest.id);
-      this.nextGuestAt = time + 2500;
+      this.nextGuestAt = time + guestBlockedRetryMs;
       this.updateStats("Entrance route blocked");
       return;
     }
@@ -10229,8 +10259,8 @@ export class GameScene extends Phaser.Scene {
     const enabledSeatCount = this.getDiningSeats().filter((seat) => !seat.disabled).length;
     const attractiveness = this.reputation.getAttractiveness(this.placement.getFurniture());
     const spawnRate = this.customers.estimateSpawnRate(attractiveness, enabledSeatCount, availableRecipes.length, this.getAverageRating());
-    const intervalMs = spawnRate > 0 ? 60000 / spawnRate : 9500;
-    this.nextGuestAt = time + Phaser.Math.Clamp(intervalMs * 1.35, 2200, 15000);
+    const intervalMs = spawnRate > 0 ? 60000 / spawnRate : guestSpawnFallbackMs;
+    this.nextGuestAt = time + Phaser.Math.Clamp(intervalMs * guestSpawnIntervalScale, guestSpawnMinMs, guestSpawnMaxMs);
   }
 
   private updateGuests(time: number, deltaSeconds: number): void {
@@ -10322,6 +10352,7 @@ export class GameScene extends Phaser.Scene {
       ticket.serviceKind = undefined;
       ticket.serviceStartedAt = undefined;
       ticket.readyAt = this.time.now;
+      gameEvents.emit("order-ready", { ticketId: ticket.id, recipeId: ticket.recipe.id });
       const stovePlatePoint = this.getChefStationPlatePoint(ticket.stationIndex ?? stationIndex);
       ticket.readyPlate = this.createReadyFoodPlateAt(
         stovePlatePoint.x,
@@ -10759,6 +10790,7 @@ export class GameScene extends Phaser.Scene {
         ticket.state = "delivered";
         ticket.serviceKind = undefined;
         ticket.serviceStartedAt = undefined;
+        gameEvents.emit("order-served", { ticketId: ticket.id, guestId: guest.id, recipeId: ticket.recipe.id });
         this.addGuestBillForTicket(guest, ticket);
         this.showWaiterCarriedPlate(waiter, false);
         this.recordRateSample(this.recentDeliveredDishes, 1);
@@ -11593,7 +11625,11 @@ export class GameScene extends Phaser.Scene {
     const averageServiceSeconds = this.getAverageWaiterServiceSeconds();
     const orderItems = guest?.orderItems ?? this.getActiveMenuRecipes().slice(0, 1);
     const cookSeconds = orderItems.reduce((sum, recipe) => sum + recipe.preparationTimeSeconds, 0);
-    return Phaser.Math.Clamp(averageServiceSeconds + cookSeconds + 55 + orderItems.length * 14, 90, 260);
+    return Phaser.Math.Clamp(
+      averageServiceSeconds + cookSeconds + patienceBaseSeconds + orderItems.length * patiencePerItemSeconds,
+      patienceMinSeconds,
+      patienceMaxSeconds,
+    );
   }
 
   private getIngredientConsumptionPerMinute(dishesPerMinute: number): number {
@@ -11711,7 +11747,7 @@ export class GameScene extends Phaser.Scene {
     this.actorLayer.add(container);
     this.drawPersonPose(body, legs, "up", 0, false);
     const visitor = {
-      id: Phaser.Math.RND.uuid(),
+      id: createEntityId("visitor"),
       container,
       body,
       legs,
@@ -12011,6 +12047,7 @@ export class GameScene extends Phaser.Scene {
         }
 
         this.earnMoney(payment, "payment");
+        gameEvents.emit("customer-paid", { guestId: guest.id, amount: payment, tip: 0 });
         this.updateStats(`Payment collected +$${payment}`);
         this.customers.recordServed();
         this.recordRateSample(this.recentServedGuests, 1);

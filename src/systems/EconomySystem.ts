@@ -1,4 +1,5 @@
 import type { SaveGameState, TransactionLogEntry } from "../components/types";
+import { WallClock, type GameClock } from "../simulation/GameClock";
 
 const maxTransactionLogEntries = 5000;
 
@@ -11,9 +12,11 @@ export class EconomySystem {
   private transactionLog: TransactionLogEntry[] = [];
   private dailyRevenueTotal = 0;
   private dailyExpensesTotal = 0;
+  private readonly clock: GameClock;
 
-  constructor(startingMoney = 280) {
+  constructor(startingMoney = 280, clock: GameClock = new WallClock()) {
     this.money = startingMoney;
+    this.clock = clock;
   }
 
   getMoney(): number {
@@ -103,7 +106,7 @@ export class EconomySystem {
     const signedAmount =
       roundedAmount > 0 ? `+$${roundedAmount}` : roundedAmount < 0 ? `-$${Math.abs(roundedAmount)}` : "$0";
     this.transactionLog.push({
-      at: Date.now(),
+      at: this.clock.now(),
       transaction: `${transaction} ${signedAmount}`,
       amount: roundedAmount,
       balance: Math.round(this.money),

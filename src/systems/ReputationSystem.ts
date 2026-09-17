@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import { clamp } from "../simulation/Random";
 import type { PlacedFurniture, SaveGameState } from "../components/types";
 import { getFurnitureDefinition } from "../data/furniture";
 
@@ -38,14 +38,14 @@ export class ReputationSystem {
     }, 0);
     const clutterPenalty = Math.max(0, meaningfulFurniture.length - 26) * 0.05;
     const score = 1 + Math.min(1, rawScore / 95) * 4 - clutterPenalty;
-    return Math.round(Phaser.Math.Clamp(score, 0.5, 5) * 10) / 10;
+    return Math.round(clamp(score, 0.5, 5) * 10) / 10;
   }
 
   getAttractiveness(furniture: PlacedFurniture[]): number {
     const decorScore = this.getDecorationScore(furniture);
-    const reputationScore = Phaser.Math.Clamp(this.reputation, 0.5, 5);
+    const reputationScore = clamp(this.reputation, 0.5, 5);
     const score = decorScore * 0.72 + reputationScore * 0.28;
-    return Math.round(Phaser.Math.Clamp(score, 0.5, 5) * 10) / 10;
+    return Math.round(clamp(score, 0.5, 5) * 10) / 10;
   }
 
   setReputation(reputation: number): void {
@@ -54,7 +54,7 @@ export class ReputationSystem {
 
   /** Append a new 1–5 customer rating. Older entries past maxRatingHistory are dropped. */
   recordRating(rating: number): void {
-    this.ratingHistory.push(Phaser.Math.Clamp(Math.round(rating), 1, 5));
+    this.ratingHistory.push(clamp(Math.round(rating), 1, 5));
     if (this.ratingHistory.length > maxRatingHistory) {
       this.ratingHistory = this.ratingHistory.slice(-maxRatingHistory);
     }
@@ -108,7 +108,7 @@ export function hydrateRatingHistoryFromSave(save: SaveGameState | null | undefi
   if (save?.ratingHistory?.length) {
     return save.ratingHistory
       .slice(-maxRatingHistory)
-      .map((rating) => Phaser.Math.Clamp(Math.round(rating), 1, 5));
+      .map((rating) => clamp(Math.round(rating), 1, 5));
   }
 
   const legacyVotes = Math.min(save?.ratingCount ?? 0, maxRatingHistory);
@@ -116,6 +116,6 @@ export function hydrateRatingHistoryFromSave(save: SaveGameState | null | undefi
     return [];
   }
 
-  const legacyAverage = Phaser.Math.Clamp((save?.ratingTotal ?? legacyVotes * 3) / legacyVotes, 1, 5);
+  const legacyAverage = clamp((save?.ratingTotal ?? legacyVotes * 3) / legacyVotes, 1, 5);
   return Array.from({ length: legacyVotes }, () => Math.round(legacyAverage));
 }

@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import { clamp } from "../simulation/Random";
 import type { IngredientStock, LuxuryTier, RecipeDefinition, SaveGameState } from "../components/types";
 import { recipes } from "../data/recipes";
 
@@ -64,11 +64,11 @@ export class CookingSystem {
 
   getRecipeUpgradeLevel(recipe: RecipeIdentifier): number {
     const recipeId = typeof recipe === "string" ? recipe : recipe.id;
-    return Phaser.Math.Clamp(Math.floor(this.recipeUpgradeLevels[recipeId] ?? 1), 1, maxRecipeUpgradeLevel);
+    return clamp(Math.floor(this.recipeUpgradeLevels[recipeId] ?? 1), 1, maxRecipeUpgradeLevel);
   }
 
   setRecipeUpgradeLevel(recipeId: string, level: number): void {
-    this.recipeUpgradeLevels[recipeId] = Phaser.Math.Clamp(Math.floor(level), 1, maxRecipeUpgradeLevel);
+    this.recipeUpgradeLevels[recipeId] = clamp(Math.floor(level), 1, maxRecipeUpgradeLevel);
   }
 
   getUnlockedRecipeIdsForCurrentTier(unlockedTier: LuxuryTier): string[] {
@@ -339,7 +339,7 @@ export function hydrateRecipeUpgradeLevels(levels?: Record<string, number>): Rec
   return Object.fromEntries(
     recipes.map((recipe) => [
       recipe.id,
-      Phaser.Math.Clamp(Math.floor(levels?.[recipe.id] ?? 1), 1, maxRecipeUpgradeLevel),
+      clamp(Math.floor(levels?.[recipe.id] ?? 1), 1, maxRecipeUpgradeLevel),
     ]),
   );
 }

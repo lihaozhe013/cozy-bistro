@@ -133,6 +133,8 @@ export interface TransactionLogEntry {
 }
 
 export interface SaveGameState {
+  /** Save schema version; absent on legacy (v0) saves. See SaveMigrationService. */
+  version?: number;
   money: number;
   reputation: number;
   dayNumber: number;

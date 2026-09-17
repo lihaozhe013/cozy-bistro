@@ -1,6 +1,6 @@
-import Phaser from "phaser";
 import type { PlacedFurniture, RecipeDefinition, SaveGameState } from "../components/types";
 import { getFurnitureDefinition } from "../data/furniture";
+import { between, clamp, defaultRandomSource, pick, type RandomSource } from "../simulation/Random";
 
 /** What category of dish a customer arrived hoping to eat. */
 export interface CustomerExpectation {
@@ -17,6 +17,11 @@ export interface CustomerExpectation {
 export class CustomerSystem {
   private dailyServed = 0;
   private dailyLost = 0;
+  private readonly random: RandomSource;
+
+  constructor(random: RandomSource = defaultRandomSource()) {
+    this.random = random;
+  }
 
   getAvailableSeatCount(furniture: PlacedFurniture[]): number {
     return furniture
@@ -40,7 +45,7 @@ export class CustomerSystem {
 
   /** Roll the category a newly arrived guest wants. Probabilities are tuned for variety. */
   rollCustomerExpectation(): CustomerExpectation {
-    const roll = Phaser.Math.Between(1, 100);
+    const roll = between(this.random, 1, 100);
     const category: RecipeDefinition["category"] =
       roll <= 22
         ? "drink"
@@ -66,8 +71,8 @@ export class CustomerSystem {
     seatQuality = 4,
     expectation?: CustomerExpectation,
   ): RecipeDefinition[] {
-    const fullCourseBias = Phaser.Math.Clamp((seatQuality - 6) * 6, -18, 28);
-    const roll = Phaser.Math.Between(1, 100);
+    const fullCourseBias = clamp((seatQuality - 6) * 6, -18, 28);
+    const roll = between(this.random, 1, 100);
     const targetCount =
       roll <= 42 - fullCourseBias
         ? 1
@@ -90,7 +95,7 @@ export class CustomerSystem {
       if (expectedOptions.length === 0) {
         return [];
       }
-      order.push(Phaser.Utils.Array.GetRandom(expectedOptions));
+      order.push(pick(this.random, expectedOptions));
     }
 
     categories.forEach((category) => {
@@ -102,16 +107,16 @@ export class CustomerSystem {
         (recipe) => recipe.category === category && !order.some((item) => item.id === recipe.id),
       );
       if (options.length > 0) {
-        order.push(Phaser.Utils.Array.GetRandom(options));
+        order.push(pick(this.random, options));
       }
     });
 
     while (order.length < targetCount && order.length < availableRecipes.length) {
       const options = availableRecipes.filter((recipe) => !order.some((item) => item.id === recipe.id));
-      order.push(Phaser.Utils.Array.GetRandom(options));
+      order.push(pick(this.random, options));
     }
 
-    return order.length > 0 ? order : [Phaser.Utils.Array.GetRandom(availableRecipes)];
+    return order.length > 0 ? order : [pick(this.random, availableRecipes)];
   }
 
   getDailyServed(): number {

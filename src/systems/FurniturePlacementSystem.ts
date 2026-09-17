@@ -1,8 +1,8 @@
-import Phaser from "phaser";
 import type { FurnitureDefinition, GridPosition, PlacedFurniture } from "../components/types";
 import { getFurnitureDefinition } from "../data/furniture";
+import { createFurnitureUid } from "../simulation/EntityIds";
 import { EconomySystem } from "./EconomySystem";
-import { RestaurantGridSystem } from "./RestaurantGridSystem";
+import type { RestaurantGridSystem } from "./RestaurantGridSystem";
 
 export class FurniturePlacementSystem {
   private readonly grid: RestaurantGridSystem;
@@ -191,7 +191,7 @@ export class FurniturePlacementSystem {
     this.furniture = [
       ...furniture,
       {
-        uid: Phaser.Math.RND.uuid(),
+        uid: createFurnitureUid(),
         furnitureId: definition.id,
         position,
         rotation: this.selectedRotation,
