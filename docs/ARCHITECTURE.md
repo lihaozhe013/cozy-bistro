@@ -10,11 +10,16 @@ this architecture.)
 src/
   main.ts              Phaser bootstrap (1600x900, FIT scale)
   scenes/GameScene.ts  Phaser orchestration: rendering, input, timers, scene-only glue
-  simulation/          Pure gameplay primitives (no Phaser imports)
+  simulation/          Pure gameplay logic (no Phaser imports)
     Random.ts          RandomSource interface, SeededRandom, between/clamp/pick
     GameClock.ts       GameClock interface, WallClock / ManualClock / SceneClock
     EntityIds.ts       Save-stable ids for guests/tickets/furniture/staff (§10)
     EventBus.ts        Typed event bus + shared `gameEvents` (§33)
+    RestaurantSimulation.ts  Headless service-loop engine (M2/M3 spec + tests)
+    orders/            Order entity + queue (states per plan §15)
+    customer/          Customer FSM vocabulary, transitions, patience math
+    staff/             Staff task types + TaskReservationRegistry (§21)
+    cooking/           CookingStation with parallel speed-multiplied slots
   systems/             Class-based gameplay services (pure; import simulation only)
     EconomySystem      All money in/out, daily totals, transaction log
     CookingSystem      Menu roster, pantry, prepared servings, errand queues

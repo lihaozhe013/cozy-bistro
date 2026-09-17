@@ -4,7 +4,7 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 2 — Complete customer service loop (verification + headless sim).
+Milestone 4 — Economy and upgrades (data-driven definitions + wiring).
 
 ## Completed
 
@@ -44,10 +44,30 @@ Milestone 2 — Complete customer service loop (verification + headless sim).
     smoke boot of production build shows Phaser WebGL boot with no console
     errors.
 
+- **M2/M3 Service loop + staff automation** (2026-09-17, headless engine):
+  - `src/simulation/RestaurantSimulation.ts`: deterministic engine mirroring
+    the scene's rules — customer FSM with legal-transition guard (§12),
+    patience + safe angry-exit cancellation (§13/§58), order queue with
+    oldest-first chef policy (§15/§19), stations with parallel slots (§17),
+    waiter task priorities deliver > payment > clean (§20), batch carry
+    capacity trips, and a TaskReservationRegistry preventing duplicate claims (§21).
+  - New submodules: `simulation/orders/Order.ts`, `simulation/customer/CustomerLogic.ts`,
+    `simulation/staff/StaffTasks.ts`, `simulation/cooking/CookingStation.ts`.
+  - M2 acceptance proven by tests: 20 sequential customers all complete;
+    no stuck tables (seats drain), no duplicate orders (serve-once audit),
+    no staff deadlock (all idle at rest, revenue == Σ prices).
+  - M3 behaviors proven: two waiters never serve the same order; carry=2
+    batches plates in one trip; chef serves oldest queued first; waiter
+    speed upgrades raise throughput; table-payment routing works.
+  - Test-driven engine fix: delivery plans had a phase bug (pickup leg and
+    table leg off by one — dishes were "served" from the counter). Now
+    modeled as explicit to-counter/to-table phases.
+
 ## In progress
 
-- M2: acceptance-grade headless customer-loop simulation proving the existing
-  loop under spawn pressure; fixing whatever stalls surfaces.
+- M4: upgrade definitions + effects applied through the simulation config
+  (chef speed, waiter speed/carry, spawn rate), then panel/UI wiring in the
+  scene.
 
 ## Next
 
