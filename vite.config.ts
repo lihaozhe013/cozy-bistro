@@ -6,6 +6,9 @@ import { defineConfig } from "vite";
 // only applies `base` in production builds.
 export default defineConfig({
   base: "/classic/",
+  build: {
+    target: "esnext",
+  },
   server: {
     port: 5173,
   },

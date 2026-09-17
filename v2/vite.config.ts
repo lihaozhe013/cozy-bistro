@@ -19,6 +19,7 @@ export default defineConfig({
     __CB_ENV__: JSON.stringify(buildEnv),
   },
   build: {
+    target: "esnext",
     outDir: "dist",
     sourcemap: true,
   },
