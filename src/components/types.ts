@@ -1,3 +1,5 @@
+import type { CustomerArchetypeId } from "../data/customers";
+
 export type FurnitureCategory =
   | "table"
   | "chair"
@@ -100,6 +102,7 @@ export interface SavedGuestState {
   orderRecipeIds: string[];
   state: "waitingToOrder" | "waitingForFood";
   patience: number;
+  archetypeId?: CustomerArchetypeId;
 }
 
 export interface SavedTicketState {

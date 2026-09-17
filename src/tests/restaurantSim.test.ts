@@ -77,17 +77,20 @@ describe("RestaurantSimulation M2 acceptance", () => {
     expect(trail.paidAmounts.reduce((sum, amount) => sum + amount, 0)).toBe(sim.money);
   });
 
-  it("revenue equals the sum of sell prices of delivered dishes", () => {
+  it("revenue covers delivered dish prices (archetype value multipliers only add)", () => {
     const { sim, trail } = createSim({ seatCount: 4, waiterCarryCapacity: 2, maxGuests: 8 });
     expect(sim.runUntil(() => sim.everyoneFinished(), 30 * 60 * 1000)).toBe(true);
     const byId = new Map(menu.map((recipe) => [recipe.id, recipe]));
-    let expected = 0;
+    let base = 0;
     for (const orderId of trail.servedOrderIds) {
       const order = sim.orders.get(orderId);
       expect(order).toBeDefined();
-      expected += byId.get(order!.recipe.id)!.sellPrice;
+      base += byId.get(order!.recipe.id)!.sellPrice;
     }
-    expect(sim.money).toBe(Math.round(expected));
+    // All archetype multipliers are >= 1, so realized revenue >= base prices.
+    expect(sim.money).toBeGreaterThanOrEqual(base);
+    // Every coin entered through customer payments only.
+    expect(trail.paidAmounts.reduce((sum, amount) => sum + amount, 0)).toBe(sim.money);
   });
 
   it("impatient guests leave safely, orders cancel, and seats recover", () => {

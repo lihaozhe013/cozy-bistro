@@ -1,6 +1,12 @@
 import type { PlacedFurniture, RecipeDefinition, SaveGameState } from "../components/types";
 import { getFurnitureDefinition } from "../data/furniture";
 import { between, clamp, defaultRandomSource, pick, type RandomSource } from "../simulation/Random";
+import {
+  customerArchetypes,
+  getCustomerArchetype,
+  type CustomerArchetypeDefinition,
+  type CustomerArchetypeId,
+} from "../data/customers";
 
 /** What category of dish a customer arrived hoping to eat. */
 export interface CustomerExpectation {
@@ -41,6 +47,41 @@ export class CustomerSystem {
     const seatPull = seatCount * (0.08 + decorPull * 0.9);
     const reputationPull = 0.3 + ratingPull * 1.5;
     return Math.max(1, Math.round(seatPull * reputationPull * menuPull));
+  }
+
+  /** Weighted archetype roll (plan §14). */
+  rollCustomerArchetype(): CustomerArchetypeDefinition {
+    const totalWeight = customerArchetypes.reduce((sum, archetype) => sum + archetype.weight, 0);
+    let roll = this.random.next() * totalWeight;
+    for (const archetype of customerArchetypes) {
+      roll -= archetype.weight;
+      if (roll <= 0) {
+        return archetype;
+      }
+    }
+    return getCustomerArchetype("regular");
+  }
+
+  /** Pick dishes for a guest honoring archetype min/max order size. */
+  composeArchetypeOrder(
+    archetype: CustomerArchetypeDefinition,
+    availableRecipes: RecipeDefinition[],
+    seatQuality = 4,
+    expectation?: CustomerExpectation,
+  ): RecipeDefinition[] {
+    const seatBias = seatQuality + (archetype.maxOrderItems - 2) * 2;
+    const order = this.chooseGuestOrder(availableRecipes, seatBias, expectation);
+    const min = Math.min(archetype.minOrderItems, availableRecipes.length);
+    const max = Math.min(archetype.maxOrderItems, availableRecipes.length);
+    let items = order;
+    if (items.length > max) {
+      items = items.slice(0, max);
+    }
+    if (items.length < min) {
+      const extras = availableRecipes.filter((recipe) => !items.some((item) => item.id === recipe.id));
+      items = [...items, ...extras.slice(0, min - items.length)];
+    }
+    return items;
   }
 
   /** Roll the category a newly arrived guest wants. Probabilities are tuned for variety. */

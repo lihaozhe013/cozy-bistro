@@ -134,6 +134,9 @@ function migrateGuests(value: unknown): SavedGuestState[] | undefined {
       state: entry.state as SavedGuestState["state"],
       patience: finiteNumber(entry.patience, 60),
     };
+    if (entry.archetypeId === "regular" || entry.archetypeId === "foodie" || entry.archetypeId === "family") {
+      guest.archetypeId = entry.archetypeId;
+    }
     if (typeof entry.seatUid === "string") {
       guest.seatUid = entry.seatUid;
     }

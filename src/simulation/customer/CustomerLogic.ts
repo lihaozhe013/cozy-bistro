@@ -1,4 +1,5 @@
 import type { RecipeDefinition } from "../../components/types";
+import type { CustomerArchetypeId } from "../../data/customers";
 
 /**
  * Customer state machine (master_plan §12). Transitions are centralized in
@@ -41,6 +42,7 @@ export function canTransitionCustomerState(from: SimCustomerState, to: SimCustom
 export interface SimCustomer {
   id: string;
   state: SimCustomerState;
+  archetypeId: CustomerArchetypeId;
   seatIndex: number;
   orderRecipeIds: string[];
   /** ms spent in queue/waiting states, used for patience (§13). */

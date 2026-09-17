@@ -103,6 +103,9 @@ import {
   type UpgradeTarget,
 } from "../data/upgrades";
 import { createEntityId, createFurnitureUid, createGuestId, createTicketId } from "../simulation/EntityIds";
+import { expansionDefinitions, starterCells, type ExpansionDefinition } from "../data/expansions";
+import { getCustomerArchetype, type CustomerArchetypeId } from "../data/customers";
+import { expansionCost, expansionRequiredForTier, luxuryTierForExpansion } from "../simulation/progression/Expansion";
 import { gameEvents } from "../simulation/EventBus";
 
 const furnitureAtlasImage = new URL("../assets/atlases/furniture.png", import.meta.url).href;
@@ -201,6 +204,7 @@ interface WaiterPickupAssignment {
 
 interface Guest {
   id: string;
+  archetypeId: CustomerArchetypeId;
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Graphics;
   legs: Phaser.GameObjects.Graphics;
@@ -318,15 +322,6 @@ interface BuildButton {
   furnitureId: string;
   button: Phaser.GameObjects.Text;
   badge: Phaser.GameObjects.Container;
-}
-
-interface ExpansionDefinition {
-  level: number;
-  name: string;
-  kind: "interior" | "yard";
-  direction: "north" | "right" | "left";
-  cells: GridPosition[];
-  signPosition: GridPosition;
 }
 
 type BoundarySide = "north" | "south" | "west" | "east";
@@ -2388,82 +2383,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getExpansionDefinitions(): ExpansionDefinition[] {
-    return [
-      {
-        level: 1,
-        name: "North Room",
-        kind: "interior",
-        direction: "north",
-        cells: this.getRectCells(0, 0, 10, 3),
-        signPosition: { x: 4, y: 1 },
-      },
-      {
-        level: 2,
-        name: "Right Room",
-        kind: "interior",
-        direction: "right",
-        cells: this.getRectCells(10, 0, 4, 9),
-        signPosition: { x: 11, y: 4 },
-      },
-      {
-        level: 3,
-        name: "Left Room",
-        kind: "interior",
-        direction: "left",
-        cells: this.getRectCells(-4, 0, 4, 9),
-        signPosition: { x: -3, y: 4 },
-      },
-      {
-        level: 4,
-        name: "North Room",
-        kind: "interior",
-        direction: "north",
-        cells: this.getRectCells(-4, -4, 18, 4),
-        signPosition: { x: 4, y: -2 },
-      },
-      {
-        level: 5,
-        name: "Garden Yard",
-        kind: "yard",
-        direction: "right",
-        cells: this.getRectCells(14, -4, 4, 13),
-        signPosition: { x: 15, y: 2 },
-      },
-      {
-        level: 6,
-        name: "Left Room",
-        kind: "interior",
-        direction: "left",
-        cells: this.getRectCells(-8, -4, 4, 13),
-        signPosition: { x: -7, y: 2 },
-      },
-      {
-        level: 7,
-        name: "North Room",
-        kind: "interior",
-        direction: "north",
-        cells: this.getRectCells(-8, -8, 26, 4),
-        signPosition: { x: 4, y: -6 },
-      },
-      {
-        level: 8,
-        name: "Garden Yard",
-        kind: "yard",
-        direction: "right",
-        cells: this.getRectCells(18, -8, 4, 17),
-        signPosition: { x: 19, y: 0 },
-      },
-    ];
+    return expansionDefinitions;
   }
 
-  private getRectCells(x: number, y: number, width: number, height: number): GridPosition[] {
-    const cells: GridPosition[] = [];
-    for (let yy = y; yy < y + height; yy += 1) {
-      for (let xx = x; xx < x + width; xx += 1) {
-        cells.push({ x: xx, y: yy });
-      }
-    }
-    return cells;
+  private getExpansionCost(level: number): number {
+    return expansionCost(level, this.adminSettings.firstExpansionCost, this.adminSettings.expansionCostMultiplier);
   }
 
   private isStarterCell(position: GridPosition): boolean {
@@ -2491,7 +2415,7 @@ export class GameScene extends Phaser.Scene {
 
   private getUnlockedExpansionCells(): GridPosition[] {
     return [
-      ...this.getRectCells(0, 3, 10, 6),
+      ...starterCells,
       ...this.getExpansionDefinitions()
         .filter((definition) => definition.level <= this.expansionLevel)
         .flatMap((definition) => definition.cells),
@@ -2507,11 +2431,6 @@ export class GameScene extends Phaser.Scene {
     return this.grid
       .getOccupiedCells(definition, position, rotation)
       .every((cell) => this.isGridPositionUnlocked(cell));
-  }
-
-  private getExpansionCost(level: number): number {
-    const exponent = Math.max(0, level - 1);
-    return Math.max(0, Math.round(this.adminSettings.firstExpansionCost * this.adminSettings.expansionCostMultiplier ** exponent));
   }
 
   private requestExpansionPurchase(level: number): void {
@@ -2871,11 +2790,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getUnlockedLuxuryTier(): LuxuryTier {
-    return Phaser.Math.Clamp(this.expansionLevel + 1, 1, 5) as LuxuryTier;
+    return luxuryTierForExpansion(this.expansionLevel);
   }
 
   private getExpansionRequiredForTier(tier: LuxuryTier): number {
-    return Math.max(0, tier - 1);
+    return expansionRequiredForTier(tier);
   }
 
   private syncLuxuryUnlocks(): void {
@@ -9184,6 +9103,7 @@ export class GameScene extends Phaser.Scene {
     diningSeat: DiningSeat,
     orderItems: RecipeDefinition[],
     visual?: { colors: PersonColors; variant: number },
+    archetypeId: CustomerArchetypeId = "regular",
   ): Guest {
     const primaryOrder = orderItems[0];
     const container = this.add.container(x, y);
@@ -9212,6 +9132,7 @@ export class GameScene extends Phaser.Scene {
 
     return {
       id: createGuestId(),
+      archetypeId,
       container,
       body,
       legs,
@@ -9725,7 +9646,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      const guest = this.createGuest(diningSeat.seat.x, diningSeat.seat.y, diningSeat, orderItems);
+      const guest = this.createGuest(
+        diningSeat.seat.x,
+        diningSeat.seat.y,
+        diningSeat,
+        orderItems,
+        undefined,
+        savedGuest.archetypeId ?? "regular",
+      );
       guest.id = savedGuest.id;
       guest.state = savedGuest.state;
       guest.patience = Math.max(8, savedGuest.patience);
@@ -10365,9 +10293,22 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const orderItems = this.chooseGuestOrder(availableRecipes, diningSeat, expectation);
+    const archetype = this.customers.rollCustomerArchetype();
+    const orderItems = this.customers.composeArchetypeOrder(
+      archetype,
+      availableRecipes,
+      this.getDiningSeatQuality(diningSeat),
+      expectation,
+    );
     const entryPedestrian = this.getPedestrianForEntrance();
-    const guest = this.createGuest(entryPedestrian.point.x, entryPedestrian.point.y, diningSeat, orderItems, entryPedestrian.visual);
+    const guest = this.createGuest(
+      entryPedestrian.point.x,
+      entryPedestrian.point.y,
+      diningSeat,
+      orderItems,
+      entryPedestrian.visual,
+      archetype.id,
+    );
     this.guests.push(guest);
     gameEvents.emit("customer-arrived", { guestId: guest.id });
     this.recordRateSample(this.recentGuestEntries, 1);
@@ -10987,7 +10928,9 @@ export class GameScene extends Phaser.Scene {
     guest.finishedEating = false;
     guest.bubble.setText("Eating");
     this.startGuestEatingAnimation(guest);
-    this.time.delayedCall(eatingSecondsPerVisit * 1000, () => {
+    this.time.delayedCall(
+      Math.round(eatingSecondsPerVisit * 1000 * getCustomerArchetype(guest.archetypeId).eatingTimeMultiplier),
+      () => {
       if (guest.state !== "paying") {
         return;
       }
@@ -11771,17 +11714,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getGuestPatienceSeconds(guest?: Guest): number {
+    const archetypeMultiplier = guest ? getCustomerArchetype(guest.archetypeId).patienceMultiplier : 1;
     const averageServiceSeconds = this.getAverageWaiterServiceSeconds();
     const orderItems = guest?.orderItems ?? this.getActiveMenuRecipes().slice(0, 1);
     const cookSeconds = orderItems.reduce((sum, recipe) => sum + recipe.preparationTimeSeconds, 0);
-    return Phaser.Math.Clamp(
-      averageServiceSeconds +
-        cookSeconds +
-        patienceBaseSeconds +
-        orderItems.length * patiencePerItemSeconds +
-        this.upgrades.effects().patienceBonusSeconds,
-      patienceMinSeconds,
-      patienceMaxSeconds,
+    return Math.round(
+      Phaser.Math.Clamp(
+        averageServiceSeconds +
+          cookSeconds +
+          patienceBaseSeconds +
+          orderItems.length * patiencePerItemSeconds +
+          this.upgrades.effects().patienceBonusSeconds,
+        patienceMinSeconds,
+        patienceMaxSeconds,
+      ) * archetypeMultiplier,
     );
   }
 
@@ -12200,14 +12146,16 @@ export class GameScene extends Phaser.Scene {
         }
 
         const effects = this.upgrades.effects();
+        const archetype = getCustomerArchetype(guest.archetypeId);
+        const bill = Math.max(1, Math.round(payment * archetype.orderValueMultiplier));
         const tip =
-          effects.tipChance > 0 && Math.random() < effects.tipChance
-            ? Math.max(1, Math.round(payment * effects.tipMultiplier))
+          Math.random() < effects.tipChance + archetype.tipChanceBonus
+            ? Math.max(1, Math.round(bill * effects.tipMultiplier))
             : 0;
-        this.earnMoney(payment + tip, "payment");
-        gameEvents.emit("customer-paid", { guestId: guest.id, amount: payment + tip, tip });
+        this.earnMoney(bill + tip, "payment");
+        gameEvents.emit("customer-paid", { guestId: guest.id, amount: bill + tip, tip });
         this.updateStats(
-          tip > 0 ? `Payment collected +$${payment} (+$${tip} tip)` : `Payment collected +$${payment}`,
+          tip > 0 ? `Payment collected +$${bill} (+$${tip} tip)` : `Payment collected +$${bill}`,
         );
         this.customers.recordServed();
         this.recordRateSample(this.recentServedGuests, 1);
@@ -14112,6 +14060,7 @@ export class GameScene extends Phaser.Scene {
         orderRecipeIds: guest.orderItems.map((recipe) => recipe.id),
         state: guest.state,
         patience: Math.max(8, Math.round(guest.patience)),
+        archetypeId: guest.archetypeId,
       }));
   }
 

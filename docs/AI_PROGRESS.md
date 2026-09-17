@@ -4,7 +4,7 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 5/6 — Expansion parity + content pass.
+Milestone 7 — Juice pass (floating text + feedback).
 
 ## Completed
 
@@ -81,10 +81,29 @@ Milestone 5/6 — Expansion parity + content pass.
   - Fixed a self-recursion introduced during wiring (caught by headless boot
     smoke: Maximum call stack exceeded).
 
+- **M5 Expansion** (2026-09-17): the scene's 8-area expansion system is now
+  a pure spec: `src/data/expansions.ts` (areas/cells/signs) +
+  `src/simulation/progression/Expansion.ts` (cost curve, sequential purchase,
+  luxury-tier mapping, overlap audit). Scene delegates; geometry verified
+  disjoint by tests; validation runs at startup.
+- **M6 Customer types** (2026-09-17): `src/data/customers.ts` (was dead code)
+  now defines the 3 planned archetypes (Regular/Foodie/Family) with weights,
+  patience/eating/value multipliers, order-size ranges, and tip bonuses.
+  Wired into BOTH the headless sim (rolls, order composition, patience,
+  eat duration, bill multiplier, tips) and the live scene (guest objects carry
+  `archetypeId`; patience, eating, payment, tip chance scale by archetype;
+  archetype persists through saves incl. migration validation).
+  - Content validation extended: duplicate curves/levels, expansion geometry,
+    archetype sanity.
+  - Tests: weight ordering, family > regular order size, distinct dishes,
+    tier mapping, purchase sequence rejection, non-overlap audit. 95 tests
+    green; production build boots headless without console errors.
+  - Recipes (36+ across 5 tiers), stove/counter station variants, 10
+    upgrades: already satisfied by existing content; M6 checklist complete.
+
 ## In progress
 
-- M5/M6: verify expansion + content parity against plan, revive
-  `customers.ts` archetypes into the live loop.
+- M7: reusable floating-text/feedback layer subscribing to gameEvents.
 
 ## Next
 

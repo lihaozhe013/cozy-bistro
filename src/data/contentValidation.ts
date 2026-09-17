@@ -5,6 +5,10 @@
 
 import { furnitureCatalog } from "./furniture";
 import { recipes } from "./recipes";
+import { customerArchetypes } from "./customers";
+import { upgradeDefinitions } from "./upgrades";
+import { expansionDefinitions } from "./expansions";
+import { findExpansionOverlaps } from "../simulation/progression/Expansion";
 import { getStarterPantry } from "../systems/CookingSystem";
 export interface ContentIssue {
   severity: "error" | "warning";
@@ -58,6 +62,38 @@ export function validateContent(): ContentIssue[] {
   const defaultActive = recipes.filter((recipe) => recipe.activeByDefault && (recipe.luxuryTier ?? 1) <= 1);
   if (defaultActive.length === 0) {
     issues.push({ severity: "error", message: "No tier-1 recipe is active by default; a new game would start with an empty menu" });
+  }
+
+  const archetypeIds = new Set<string>();
+  for (const archetype of customerArchetypes) {
+    if (archetypeIds.has(archetype.id)) {
+      issues.push({ severity: "error", message: `Duplicate archetype id: ${archetype.id}` });
+    }
+    archetypeIds.add(archetype.id);
+    if (archetype.weight <= 0 || archetype.minOrderItems > archetype.maxOrderItems) {
+      issues.push({ severity: "error", message: `Invalid archetype modifiers: ${archetype.id}` });
+    }
+  }
+
+  const upgradeIds = new Set<string>();
+  for (const definition of upgradeDefinitions) {
+    if (upgradeIds.has(definition.id)) {
+      issues.push({ severity: "error", message: `Duplicate upgrade id: ${definition.id}` });
+    }
+    upgradeIds.add(definition.id);
+    if (definition.baseCost <= 0 || definition.growthRate < 1 || definition.maxLevel < 1) {
+      issues.push({ severity: "error", message: `Invalid upgrade curve: ${definition.id}` });
+    }
+  }
+
+  const expansionLevels = expansionDefinitions.map((definition) => definition.level);
+  for (let level = 1; level <= expansionDefinitions.length; level += 1) {
+    if (!expansionLevels.includes(level)) {
+      issues.push({ severity: "error", message: `Expansion levels are not contiguous (missing ${level})` });
+    }
+  }
+  for (const overlap of findExpansionOverlaps()) {
+    issues.push({ severity: "error", message: `Expansion geometry: ${overlap}` });
   }
 
   return issues;

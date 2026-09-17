@@ -134,7 +134,9 @@ describe("upgrade effects in RestaurantSimulation", () => {
       { random: new SeededRandom(21), events },
     );
     sim.runUntil(() => sim.everyoneFinished(), 10 * 60 * 1000);
-    expect(served).toBe(10);
+    // All ten guests finished; archetypes may order multiple dishes each.
+    expect(sim.served).toBe(10);
+    expect(served).toBeGreaterThanOrEqual(10);
 
     // Same seed, no upgrades, half the budget: fewer completes.
     const plain = new RestaurantSimulation(

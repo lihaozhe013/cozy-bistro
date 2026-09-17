@@ -1,5 +1,6 @@
 import type { RecipeDefinition } from "../components/types";
 import type { UpgradeEffects } from "../data/upgrades";
+import { getCustomerArchetype } from "../data/customers";
 import { EconomySystem } from "../systems/EconomySystem";
 import { CustomerSystem } from "../systems/CustomerSystem";
 import { ManualClock } from "./GameClock";
@@ -292,6 +293,7 @@ export class RestaurantSimulation {
     this.guestList.push({
       id: guestId,
       state: "entering",
+      archetypeId: this.customers.rollCustomerArchetype().id,
       seatIndex,
       orderRecipeIds: [],
       waitedMs: 0,
@@ -341,7 +343,7 @@ export class RestaurantSimulation {
           break;
         }
         case "eating":
-          if (dwell >= this.config.eatMs) {
+          if (dwell >= this.config.eatMs * getCustomerArchetype(guest.archetypeId).eatingTimeMultiplier) {
             if (this.config.collectPaymentsAtTable) {
               this.setGuestState(guest, "waiting-for-payment", now);
             } else {
@@ -373,9 +375,10 @@ export class RestaurantSimulation {
   }
 
   private placeOrders(guest: SimCustomer, now: number): void {
+    const archetype = getCustomerArchetype(guest.archetypeId);
     const chosen = this.customers
-      .chooseGuestOrder(this.config.menu, 5, undefined)
-      .slice(0, this.config.maxOrdersPerGuest);
+      .composeArchetypeOrder(archetype, this.config.menu, 5, undefined)
+      .slice(0, Math.max(this.config.maxOrdersPerGuest, archetype.minOrderItems));
     for (const recipe of chosen) {
       const order: Order = {
         id: createTicketId(),
@@ -388,20 +391,26 @@ export class RestaurantSimulation {
       guest.orderRecipeIds.push(recipe.id);
       this.events.emit("order-created", { ticketId: order.id, guestId: guest.id, recipeId: recipe.id });
     }
-    guest.patienceMs = computePatienceMs(
-      chosen,
-      this.config.patienceBaseMs,
-      this.config.patiencePerDishMs,
+    guest.patienceMs = Math.round(
+      computePatienceMs(chosen, this.config.patienceBaseMs, this.config.patiencePerDishMs) *
+        archetype.patienceMultiplier,
     );
     this.setGuestState(guest, "waiting-for-food", now);
   }
 
   private completePayment(guest: SimCustomer, now: number): void {
-    const bill = Math.round(guest.servedValue);
-    if (bill > 0) {
-      this.economy.earnMoney(bill, "payment");
+    const archetype = getCustomerArchetype(guest.archetypeId);
+    const bill = Math.round(guest.servedValue * archetype.orderValueMultiplier);
+    const effects = this.config.effects;
+    const tipChance = (effects?.tipChance ?? 0) + archetype.tipChanceBonus;
+    const tip =
+      tipChance > 0 && bill > 0 && this.random.next() < tipChance
+        ? Math.max(1, Math.round(bill * (effects?.tipMultiplier ?? 0)))
+        : 0;
+    if (bill + tip > 0) {
+      this.economy.earnMoney(bill + tip, "payment");
     }
-    this.events.emit("customer-paid", { guestId: guest.id, amount: bill, tip: 0 });
+    this.events.emit("customer-paid", { guestId: guest.id, amount: bill + tip, tip });
     this.servedCount += 1;
     this.customers.recordServed();
     this.releaseSeat(guest);

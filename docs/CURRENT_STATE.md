@@ -66,6 +66,15 @@ and in `AI_PROGRESS.md`.
   + sit variants; speech bubbles; cooking flame; rating widget; debug text
   overlay with update-error capture; pavement pedestrians/trash side mechanic.
 
+## Post-M1..M6 status (updated 2026-09-17)
+
+Tests exist (vitest, 95 passing), saves are versioned/migrated/quarantined,
+event bus live, balance centralized, upgrade system live (10 data-driven),
+customer archetypes live (Regular/Foodie/Family), expansion rules extracted
+pure. Remaining gaps: scene still 14k lines (M2/M3 logic duplicated as
+headless spec rather than shared yet), juice pass (M7), FPS 30 (M8), audio,
+offline model tuning. Original gap list below kept for the audit trail.
+
 ## Partially working / gaps vs. master plan
 
 | Plan requirement | Status |
