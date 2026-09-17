@@ -25,8 +25,8 @@ This prototype now implements Stage 1, a testable slice of Stage 2, and an early
 ## Run Locally
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open the local Vite URL printed in the terminal, usually:

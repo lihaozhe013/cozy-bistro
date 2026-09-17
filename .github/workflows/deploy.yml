@@ -40,19 +40,21 @@ jobs:
         with:
           ref: staging
           path: staging
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: pnpm
 
       # ---- PROD (from main): 3D at root, old 2D parked at /classic/ ----
       - name: Build prod 2D (classic)
         working-directory: prod
-        run: npm ci && npm run build
+        run: pnpm install --frozen-lockfile --filter cozy-bistro-prototype && pnpm --filter cozy-bistro-prototype run build
       - name: Build prod 3D (v2)
         working-directory: prod
         env:
           CB_BASE: /
-        run: npm ci --prefix v2 && npm run --prefix v2 build
+        run: pnpm install --frozen-lockfile --filter cozy-bistro-3d && pnpm --filter cozy-bistro-3d run build
 
       # ---- STAGING (from staging): 3D only, at /staging/cozy-bistro-3d/ ----
       # Its own base + staging-DB default baked in. Non-fatal: a broken
@@ -64,7 +66,7 @@ jobs:
         env:
           CB_BASE: /staging/cozy-bistro-3d/
           CB_BUILD_ENV: staging
-        run: npm ci --prefix v2 && npm run --prefix v2 build
+        run: pnpm install --frozen-lockfile --filter cozy-bistro-3d && pnpm --filter cozy-bistro-3d run build
 
       # ---- Assemble one Pages artifact ----
       - name: Assemble site
