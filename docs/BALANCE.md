@@ -49,6 +49,24 @@ tunes them toward the plan's pacing targets.
 - Recipe upgrade cost: `level²` units of **each** ingredient (max level 10).
 - Tier profit target bands (docs/luxury-balance.md): T1 $8–20 … T5 $87–125.
 
+## Operational upgrades (M4, data-driven)
+
+| Upgrade | Max | Base cost | Growth | Per level |
+| --- | ---: | ---: | ---: | --- |
+| Chef Training (cook speed) | 8 | 120 | 1.62 | +8% cook speed |
+| Queue Trainers (walk speed) | 8 | 100 | 1.60 | +8% staff speed |
+| Serving Trays (carry) | 3 | 400 | 2.30 | +1 plate/trip |
+| Street Charm (flow) | 6 | 150 | 1.70 | +10% spawn rate |
+| Comfy Waiting (patience) | 5 | 90 | 1.55 | +10 s patience |
+| Warm Smiles (tip chance) | 5 | 130 | 1.60 | +4% tip chance |
+| Signature Touch (tip size) | 5 | 140 | 1.60 | +10% bill as tip |
+| Plating School (satisfaction) | 6 | 160 | 1.65 | +1 dish satisfaction |
+| Sink Workflow (dishwasher) | 5 | 110 | 1.58 | +12% wash speed |
+| Window Display (attract.) | 5 | 150 | 1.60 | +0.1 attractiveness |
+
+Plus the pre-existing per-recipe upgrade track (levels 1–10, paid in
+ingredients).
+
 ## Progression
 
 | Value | Current |

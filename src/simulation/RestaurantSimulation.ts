@@ -1,4 +1,5 @@
 import type { RecipeDefinition } from "../components/types";
+import type { UpgradeEffects } from "../data/upgrades";
 import { EconomySystem } from "../systems/EconomySystem";
 import { CustomerSystem } from "../systems/CustomerSystem";
 import { ManualClock } from "./GameClock";
@@ -65,6 +66,8 @@ export interface SimulationConfig {
   collectPaymentsAtTable?: boolean;
   /** Stop spawning after this many guests (Infinity by default). */
   maxGuests?: number;
+  /** When provided, purchase-driven upgrade effects fold into these timings. */
+  effects?: UpgradeEffects;
 }
 
 type SimConfigResolved = Required<Omit<SimulationConfig, "stations">> & { stations: Required<StationConfig>[] };
@@ -132,7 +135,7 @@ export class RestaurantSimulation {
     config: SimulationConfig,
     options: { economy?: EconomySystem; random?: RandomSource; events?: EventBus } = {},
   ) {
-    this.config = {
+    const resolved = {
       ...defaults,
       ...config,
       stations: config.stations.map((station) => ({
@@ -141,6 +144,15 @@ export class RestaurantSimulation {
         speedMultiplier: station.speedMultiplier ?? 1,
       })),
     } as SimConfigResolved;
+    const effects = config.effects;
+    if (effects) {
+      resolved.chefSpeedMultiplier *= effects.chefCookMultiplier;
+      resolved.waiterSpeedMultiplier *= effects.waiterSpeedMultiplier;
+      resolved.waiterCarryCapacity = Math.max(resolved.waiterCarryCapacity, effects.waiterCarryCapacity);
+      resolved.spawnIntervalMs = Math.max(200, Math.round(resolved.spawnIntervalMs / effects.spawnRateMultiplier));
+      resolved.patienceBaseMs += effects.patienceBonusSeconds * 1000;
+    }
+    this.config = resolved;
     this.random = options.random ?? defaultRandomSource();
     this.economy = options.economy ?? new EconomySystem(0, this.clock);
     this.events = options.events ?? new EventBus();

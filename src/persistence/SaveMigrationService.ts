@@ -255,6 +255,7 @@ export function migrateSave(raw: unknown): MigrationResult {
     unlockedRecipeIds: stringArray(save.unlockedRecipeIds),
     menuRecipeIds: Array.isArray(save.menuRecipeIds) ? stringArray(save.menuRecipeIds) : undefined,
     recipeUpgradeLevels: migrateNumberRecord(save.recipeUpgradeLevels),
+    upgradeLevels: migrateNumberRecord(save.upgradeLevels),
     furniture: migrateFurniture(save.furniture),
     ingredients: migrateIngredients(save.ingredients),
     preparedServings: migrateNumberRecord(save.preparedServings),

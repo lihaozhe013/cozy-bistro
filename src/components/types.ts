@@ -141,6 +141,8 @@ export interface SaveGameState {
   unlockedRecipeIds: string[];
   menuRecipeIds?: string[];
   recipeUpgradeLevels?: Record<string, number>;
+  /** Purchased operational upgrade levels (see src/data/upgrades.ts). */
+  upgradeLevels?: Record<string, number>;
   furniture: PlacedFurniture[];
   ingredients?: IngredientStock[];
   preparedServings?: Record<string, number>;

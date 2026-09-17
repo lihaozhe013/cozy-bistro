@@ -37,6 +37,7 @@ const baseSave: SaveGameState = {
   menuRecipeIds: ["toast"],
   furniture: [{ uid: "f1", furnitureId: "cafe-chair", position: { x: 4, y: 4 } }],
   staff: { chefs: 1, waiters: 1, errandBoys: 0 },
+  upgradeLevels: { "chef-cook-speed": 2 },
 };
 
 describe("SaveSystem", () => {
@@ -48,6 +49,7 @@ describe("SaveSystem", () => {
     expect(loaded!.version).toBe(CURRENT_SAVE_VERSION);
     expect(loaded!.money).toBe(500);
     expect(loaded!.furniture).toEqual(baseSave.furniture);
+    expect(loaded!.upgradeLevels).toEqual({ "chef-cook-speed": 2 });
   });
 
   it("loads slot 1 from the pre-slots legacy key", () => {

@@ -94,6 +94,14 @@ import { hydrateRatingHistoryFromSave, maxRatingHistory, ReputationSystem } from
 import { RestaurantGridSystem } from "../systems/RestaurantGridSystem";
 import { SaveSystem } from "../systems/SaveSystem";
 import { defaultPayrollPerStaffPerMinute, StaffSystem, type StaffRole } from "../systems/StaffSystem";
+import { UpgradeSystem } from "../simulation/progression/UpgradeSystem";
+import { SceneClock } from "../simulation/GameClock";
+import {
+  describeUpgradeEffect,
+  getUpgradeDefinition,
+  upgradeDefinitions,
+  type UpgradeTarget,
+} from "../data/upgrades";
 import { createEntityId, createFurnitureUid, createGuestId, createTicketId } from "../simulation/EntityIds";
 import { gameEvents } from "../simulation/EventBus";
 
@@ -444,8 +452,18 @@ export class GameScene extends Phaser.Scene {
   private cooking!: CookingSystem;
   private customers!: CustomerSystem;
   private dayCycle!: DayCycleSystem;
+  private sceneClock = new SceneClock();
   private saveSystem!: SaveSystem;
   private staffSystem!: StaffSystem;
+  private upgrades!: UpgradeSystem;
+  private upgradeModal: Phaser.GameObjects.Container | null = null;
+  private upgradesButton!: Phaser.GameObjects.Text;
+  private upgradeRowWidgets: Array<{
+    id: UpgradeTarget;
+    status: Phaser.GameObjects.Text;
+    detail: Phaser.GameObjects.Text;
+    button: Phaser.GameObjects.Text;
+  }> = [];
   /** Read-only view of staff headcount delegated to staffSystem (kept as a getter so existing `this.staff.chefs` reads still work). */
   private get staff(): HiredStaff {
     return this.staffSystem.getStaff();
@@ -649,7 +667,9 @@ export class GameScene extends Phaser.Scene {
     const initialFurniture = save?.furniture ?? this.getStarterFurniture();
 
     this.grid = new RestaurantGridSystem(30, 22, 58, new Phaser.Math.Vector2(420, 220), -8, -13);
-    this.economy = new EconomySystem(save?.money ?? starterMoney);
+    this.economy = new EconomySystem(save?.money ?? starterMoney, this.sceneClock);
+    this.upgrades = new UpgradeSystem(this.economy, gameEvents);
+    this.upgrades.hydrate(save?.upgradeLevels);
     this.reputation = new ReputationSystem(save?.reputation ?? 1);
     this.expansionLevel = this.hydrateExpansionLevel(save, initialFurniture);
     this.adminSettings = this.hydrateAdminSettings(save?.adminSettings);
@@ -776,6 +796,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.sceneClock.setNow(time);
     try {
       const tickResult = this.dayCycle.tick(delta / 1000);
       if (tickResult.dayEnded) {
@@ -2566,6 +2587,115 @@ export class GameScene extends Phaser.Scene {
     this.expansionConfirmModal = null;
   }
 
+  private openUpgradeModal(): void {
+    if (this.upgradeModal) {
+      return;
+    }
+    this.closeExpansionConfirmModal();
+    this.closeSaveModal();
+    this.closeAdminModal();
+    this.closeRecipeUpgradeModal();
+
+    const modal = this.add.container(0, 0).setDepth(3120);
+    const shade = this.add.rectangle(gameWidth / 2, gameHeight / 2, gameWidth, gameHeight, 0x1f2528, 0.38).setInteractive();
+    shade.on("pointerdown", (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event?: Phaser.Types.Input.EventData,
+    ) => event?.stopPropagation());
+    const panelX = 470;
+    const panelY = 96;
+    const panelWidth = 660;
+    const panelHeight = 708;
+    const panel = this.add.graphics();
+    panel.fillStyle(panelFill, 1);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
+    panel.fillStyle(panelHeader, 1);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, 44, 10);
+    panel.fillRect(panelX, panelY + 30, panelWidth, 14);
+    panel.lineStyle(2, panelStroke, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
+    const title = this.add.text(panelX + 18, panelY + 11, "Restaurant Upgrades", {
+      color: "#3b2a21",
+      fontFamily: "Arial",
+      fontSize: "17px",
+      fontStyle: "bold",
+    });
+    const closeButton = this.add.text(panelX + panelWidth - 40, panelY + 11, "X", {
+      color: "#7a5b49",
+      fontFamily: "Arial",
+      fontSize: "18px",
+      fontStyle: "bold",
+    }).setInteractive({ useHandCursor: true });
+    closeButton.on("pointerdown", () => this.closeUpgradeModal());
+
+    this.upgradeRowWidgets = [];
+    const rowHeight = 62;
+    upgradeDefinitions.forEach((definition, index) => {
+      const rowY = panelY + 62 + index * rowHeight;
+      const status = this.add.text(panelX + 18, rowY, "", {
+        color: "#3b2a21",
+        fontFamily: "Arial",
+        fontSize: "14px",
+        fontStyle: "bold",
+      });
+      const detail = this.add.text(panelX + 18, rowY + 20, "", {
+        color: "#5e473a",
+        fontFamily: "Arial",
+        fontSize: "12px",
+      });
+      detail.setWordWrapWidth(panelWidth - 190);
+      const button = this.createActionButton("", panelX + panelWidth - 152, rowY + 8, () => this.buyUpgrade(definition.id), 138, 40, 12);
+      modal.add([status, detail, button]);
+      this.upgradeRowWidgets.push({ id: definition.id, status, detail, button });
+    });
+
+    const tip = this.add.text(panelX + 18, panelY + panelHeight - 32, "Upgrades apply immediately and are saved.", {
+      color: "#7a5b49",
+      fontFamily: "Arial",
+      fontSize: "12px",
+      fontStyle: "italic",
+    });
+    modal.add([shade, panel, title, closeButton, tip]);
+    this.upgradeModal = modal;
+    this.refreshUpgradeModal();
+  }
+
+  private closeUpgradeModal(): void {
+    this.upgradeModal?.destroy();
+    this.upgradeModal = null;
+    this.upgradeRowWidgets = [];
+  }
+
+  private refreshUpgradeModal(): void {
+    for (const row of this.upgradeRowWidgets) {
+      const definition = getUpgradeDefinition(row.id);
+      const level = this.upgrades.getLevel(row.id);
+      const maxed = this.upgrades.isMaxed(row.id);
+      row.status.setText(`${definition.name}  Lv.${level}/${definition.maxLevel}`);
+      row.detail.setText(`${definition.description}\n${maxed ? "Fully upgraded" : describeUpgradeEffect(row.id, level)}`);
+      row.button.setText(maxed ? "MAX" : `Upgrade\n$${this.upgrades.cost(row.id)}`);
+    }
+  }
+
+  private buyUpgrade(id: UpgradeTarget): void {
+    const definition = getUpgradeDefinition(id);
+    const purchased = this.upgrades.purchase(id);
+    if (purchased === null) {
+      if (this.upgrades.isMaxed(id)) {
+        this.showToast(`${definition.name} is already fully upgraded`, "info");
+      } else {
+        this.showToast(`Need $${this.upgrades.cost(id)} for ${definition.name}`, "error");
+      }
+      return;
+    }
+    this.persistQuietly();
+    this.updateStats(`${definition.name} upgraded to Lv.${purchased}`);
+    this.refreshUpgradeModal();
+    this.refreshCatalogUiIfReady();
+  }
+
   private openRecipeUpgradeModal(recipeId: string): void {
     const recipe = recipes.find((item) => item.id === recipeId);
     if (!recipe) {
@@ -2576,6 +2706,7 @@ export class GameScene extends Phaser.Scene {
     this.closeSaveModal();
     this.closeAdminModal();
     this.closeRecipeUpgradeModal();
+    this.closeUpgradeModal();
 
     const level = this.getRecipeUpgradeLevel(recipe);
     const nextLevel = Math.min(maxRecipeUpgradeLevel, level + 1);
@@ -2839,6 +2970,10 @@ export class GameScene extends Phaser.Scene {
     this.fireWaiterButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 132, 750, () => this.fireStaff("waiter"), 118, 30, 13)) as Phaser.GameObjects.Text;
     this.hireErrandButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 4, 788, () => this.hireStaff("errand"), 118, 30, 13)) as Phaser.GameObjects.Text;
     this.fireErrandButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 132, 788, () => this.fireStaff("errand"), 118, 30, 13)) as Phaser.GameObjects.Text;
+    this.upgradesButton = this.addRightContent(
+      "ops",
+      this.createActionButton("Upgrades", rightPanelX + 4, 828, () => this.openUpgradeModal(), 246, 32, 14),
+    ) as Phaser.GameObjects.Text;
 
     this.addRightContent("menu", this.drawPanelBox(rightPanelX - 10, 164, 274, 708, "Recipe Menu"));
     this.addRightContent(
@@ -3583,7 +3718,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getRecipeSatisfactionEffect(recipe: RecipeDefinition): number {
-    return recipe.satisfactionEffect + (this.getRecipeUpgradeLevel(recipe) - 1) * 2;
+    return (
+      recipe.satisfactionEffect + (this.getRecipeUpgradeLevel(recipe) - 1) * 2 + this.upgrades.effects().satisfactionBonus
+    );
+  }
+
+  private getStaffWalkSpeed(): number {
+    return staffWalkPixelsPerSecond * this.upgrades.effects().waiterSpeedMultiplier;
+  }
+
+  private getEffectiveAttractiveness(furniture: PlacedFurniture[] = this.placement.getFurniture()): number {
+    return this.reputation.getAttractiveness(furniture) + this.upgrades.effects().attractivenessBonus;
   }
 
   private getRecipeUpgradeCost(recipe: RecipeDefinition): Record<string, number> {
@@ -8111,6 +8256,7 @@ export class GameScene extends Phaser.Scene {
     this.closeSaveModal();
     this.closeAdminModal();
     this.closeRecipeUpgradeModal();
+    this.closeUpgradeModal();
     const modal = this.add.container(0, 0).setDepth(3000);
     const shade = this.add.rectangle(gameWidth / 2, gameHeight / 2, gameWidth, gameHeight, 0x1f2528, 0.55);
     const panel = this.add.graphics();
@@ -9670,7 +9816,7 @@ export class GameScene extends Phaser.Scene {
     const expectedDishesPerCustomer = this.getExpectedDishesPerCustomer();
     const averageServiceSeconds = this.getAverageWaiterServiceSeconds(expectedDishesPerCustomer);
     const waiterOutput = averageServiceSeconds > 0 ? Math.floor((this.staff.waiters * 60 * expectedDishesPerCustomer) / averageServiceSeconds) : 0;
-    const attractiveness = this.reputation.getAttractiveness(this.placement.getFurniture());
+    const attractiveness = this.getEffectiveAttractiveness();
     const spawnRate = this.customers.estimateSpawnRate(attractiveness, diningSeats, this.cooking.getUnlockedRecipeIds().length, this.getAverageRating());
     const demand = Math.round(this.getCurrentCustomerDemandPerMinute(diningSeats, 0, spawnRate) * expectedDishesPerCustomer);
     const capacityPerMinute = Math.max(0, Math.min(demand, chefOutput, waiterOutput));
@@ -10257,9 +10403,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     const enabledSeatCount = this.getDiningSeats().filter((seat) => !seat.disabled).length;
-    const attractiveness = this.reputation.getAttractiveness(this.placement.getFurniture());
+    const attractiveness = this.getEffectiveAttractiveness();
     const spawnRate = this.customers.estimateSpawnRate(attractiveness, enabledSeatCount, availableRecipes.length, this.getAverageRating());
-    const intervalMs = spawnRate > 0 ? 60000 / spawnRate : guestSpawnFallbackMs;
+    const intervalMs =
+      spawnRate > 0 ? 60000 / (spawnRate * this.upgrades.effects().spawnRateMultiplier) : guestSpawnFallbackMs;
     this.nextGuestAt = time + Phaser.Math.Clamp(intervalMs * guestSpawnIntervalScale, guestSpawnMinMs, guestSpawnMaxMs);
   }
 
@@ -10327,7 +10474,9 @@ export class GameScene extends Phaser.Scene {
     chef.task = "cooking";
     chef.bubble.setText(`Cooking ${ticket.recipe.name}`);
     this.startChefCookingAnimation(chef, stationIndex);
-    this.time.delayedCall(ticket.recipe.preparationTimeSeconds * 1000, () => {
+    this.time.delayedCall(
+      Math.round((ticket.recipe.preparationTimeSeconds * 1000) / this.upgrades.effects().chefCookMultiplier),
+      () => {
       if (!this.tickets.some((item) => item.id === ticket.id)) {
         chef.task = "idle";
         chef.busyUntil = this.time.now + 400;
@@ -10552,7 +10701,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.dishwasherBusy = true;
-    this.time.delayedCall(dishwasherSeconds * 1000, () => {
+    this.time.delayedCall(Math.round((dishwasherSeconds * 1000) / this.upgrades.effects().dishwasherSpeedMultiplier), () => {
       this.dirtyDishCount = Math.max(0, this.dirtyDishCount - 1);
       this.dishwasherBusy = false;
       this.requestFurnitureRender("dishwasher washed dish");
@@ -11607,7 +11756,7 @@ export class GameScene extends Phaser.Scene {
         Phaser.Math.Distance.Between(seat.cleanupSpot.x, seat.cleanupSpot.y, waiterHomePoint.x, waiterHomePoint.y);
 
       const handlingSeconds = (orderHandOffSeconds * (expectedItemsPerCustomer + 1) + paymentSeconds + cleaningSeconds) * serviceMultiplier;
-      return sum + (orderRoutePixels + foodRoutePixels * expectedItemsPerCustomer + paymentRoutePixels) / staffWalkPixelsPerSecond + handlingSeconds;
+      return sum + (orderRoutePixels + foodRoutePixels * expectedItemsPerCustomer + paymentRoutePixels) / this.getStaffWalkSpeed() + handlingSeconds;
     }, 0);
 
     return totalSeconds / seats.length;
@@ -11626,7 +11775,11 @@ export class GameScene extends Phaser.Scene {
     const orderItems = guest?.orderItems ?? this.getActiveMenuRecipes().slice(0, 1);
     const cookSeconds = orderItems.reduce((sum, recipe) => sum + recipe.preparationTimeSeconds, 0);
     return Phaser.Math.Clamp(
-      averageServiceSeconds + cookSeconds + patienceBaseSeconds + orderItems.length * patiencePerItemSeconds,
+      averageServiceSeconds +
+        cookSeconds +
+        patienceBaseSeconds +
+        orderItems.length * patiencePerItemSeconds +
+        this.upgrades.effects().patienceBonusSeconds,
       patienceMinSeconds,
       patienceMaxSeconds,
     );
@@ -11810,11 +11963,11 @@ export class GameScene extends Phaser.Scene {
     const orderRouteSeconds =
       (Phaser.Math.Distance.Between(waiterHomePoint.x, waiterHomePoint.y, seat.serviceSpot.x, seat.serviceSpot.y) +
         Phaser.Math.Distance.Between(seat.serviceSpot.x, seat.serviceSpot.y, kitchenPickupPoint.x, kitchenPickupPoint.y)) /
-      staffWalkPixelsPerSecond;
+      this.getStaffWalkSpeed();
     const foodRouteSeconds =
       (Phaser.Math.Distance.Between(kitchenPickupPoint.x, kitchenPickupPoint.y, seat.serviceSpot.x, seat.serviceSpot.y) +
         Phaser.Math.Distance.Between(seat.serviceSpot.x, seat.serviceSpot.y, kitchenPickupPoint.x, kitchenPickupPoint.y)) /
-      staffWalkPixelsPerSecond;
+      this.getStaffWalkSpeed();
     const cookSeconds = orderItems.reduce((sum, recipe) => sum + recipe.preparationTimeSeconds, 0);
     return orderRouteSeconds + cookSeconds + foodRouteSeconds * orderItems.length + orderHandOffSeconds * (orderItems.length + 1) + paymentSeconds + eatingSecondsPerVisit;
   }
@@ -11920,10 +12073,10 @@ export class GameScene extends Phaser.Scene {
     const errandHomePoint = this.getErrandHomePoint();
     const restaurantExitPoint = this.getRestaurantExitPoint();
     const routeSeconds =
-      Phaser.Math.Distance.Between(errandHomePoint.x, errandHomePoint.y, groceryCounterPoint.x, groceryCounterPoint.y) / staffWalkPixelsPerSecond +
-      Phaser.Math.Distance.Between(groceryCounterPoint.x, groceryCounterPoint.y, restaurantExitPoint.x, restaurantExitPoint.y) / staffWalkPixelsPerSecond +
-      Phaser.Math.Distance.Between(restaurantExitPoint.x, restaurantExitPoint.y, groceryCounterPoint.x, groceryCounterPoint.y) / staffWalkPixelsPerSecond +
-      Phaser.Math.Distance.Between(groceryCounterPoint.x, groceryCounterPoint.y, errandHomePoint.x, errandHomePoint.y) / staffWalkPixelsPerSecond;
+      Phaser.Math.Distance.Between(errandHomePoint.x, errandHomePoint.y, groceryCounterPoint.x, groceryCounterPoint.y) / this.getStaffWalkSpeed() +
+      Phaser.Math.Distance.Between(groceryCounterPoint.x, groceryCounterPoint.y, restaurantExitPoint.x, restaurantExitPoint.y) / this.getStaffWalkSpeed() +
+      Phaser.Math.Distance.Between(restaurantExitPoint.x, restaurantExitPoint.y, groceryCounterPoint.x, groceryCounterPoint.y) / this.getStaffWalkSpeed() +
+      Phaser.Math.Distance.Between(groceryCounterPoint.x, groceryCounterPoint.y, errandHomePoint.x, errandHomePoint.y) / this.getStaffWalkSpeed();
 
     return shoppingSeconds + routeSeconds;
   }
@@ -12046,9 +12199,16 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
-        this.earnMoney(payment, "payment");
-        gameEvents.emit("customer-paid", { guestId: guest.id, amount: payment, tip: 0 });
-        this.updateStats(`Payment collected +$${payment}`);
+        const effects = this.upgrades.effects();
+        const tip =
+          effects.tipChance > 0 && Math.random() < effects.tipChance
+            ? Math.max(1, Math.round(payment * effects.tipMultiplier))
+            : 0;
+        this.earnMoney(payment + tip, "payment");
+        gameEvents.emit("customer-paid", { guestId: guest.id, amount: payment + tip, tip });
+        this.updateStats(
+          tip > 0 ? `Payment collected +$${payment} (+$${tip} tip)` : `Payment collected +$${payment}`,
+        );
         this.customers.recordServed();
         this.recordRateSample(this.recentServedGuests, 1);
         guest.paidAt = this.time.now;
@@ -12316,7 +12476,7 @@ export class GameScene extends Phaser.Scene {
     const negative = one + two;
     const furniture = this.placement.getFurniture();
     const decorationScore = this.reputation.getDecorationScore(furniture);
-    const attractiveness = this.reputation.getAttractiveness(furniture);
+    const attractiveness = this.getEffectiveAttractiveness(furniture);
     const cleanSeats = this.getAvailableDiningSeats().length;
     const activeRecipes = this.getActiveMenuRecipes().length;
 
@@ -12363,7 +12523,7 @@ export class GameScene extends Phaser.Scene {
       actor.body,
       actor.legs,
       target,
-      staffWalkPixelsPerSecond,
+      this.getStaffWalkSpeed(),
       onComplete,
       allowBlockedFinalStep,
       allowExterior,
@@ -13533,7 +13693,7 @@ export class GameScene extends Phaser.Scene {
 
     const furniture = this.placement.getFurniture();
     const decorationScore = this.reputation.getDecorationScore(furniture);
-    const attractiveness = this.reputation.getAttractiveness(furniture);
+    const attractiveness = this.getEffectiveAttractiveness(furniture);
     const chairs = this.customers.getAvailableSeatCount(furniture);
     const tables = furniture.filter((item) => getFurnitureDefinition(item.furnitureId).category === "table").length;
     const allDiningSeats = this.getDiningSeats();
@@ -13887,6 +14047,7 @@ export class GameScene extends Phaser.Scene {
       unlockedRecipeIds: this.cooking.getUnlockedRecipeIdsSnapshot(),
       menuRecipeIds: this.cooking.getMenuRecipeIdsSnapshot(),
       recipeUpgradeLevels: this.cooking.getRecipeUpgradeLevelsSnapshot(),
+      upgradeLevels: this.upgrades.getLevelsSnapshot(),
       furniture: this.placement.getFurniture(),
       ingredients: this.cooking.getPantrySnapshot(),
       preparedServings: this.cooking.getPreparedServingsSnapshot(),

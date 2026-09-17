@@ -4,7 +4,7 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 4 — Economy and upgrades (data-driven definitions + wiring).
+Milestone 5/6 — Expansion parity + content pass.
 
 ## Completed
 
@@ -63,11 +63,28 @@ Milestone 4 — Economy and upgrades (data-driven definitions + wiring).
     table leg off by one — dishes were "served" from the counter). Now
     modeled as explicit to-counter/to-table phases.
 
+- **M4 Economy & upgrades** (2026-09-17):
+  - `src/data/upgrades.ts` (was dead code) rewritten: 10 data-driven
+    definitions with exponential cost curves (growth 1.55–2.3) covering chef
+    cook speed, waiter move speed, waiter carry capacity, customer flow,
+    guest patience, tip chance/amount, dish satisfaction, dishwasher speed,
+    and marketing glow; `computeUpgradeEffects()` compiles levels to one
+    runtime bundle; `describeUpgradeEffect()` feeds the UI (§35).
+  - `src/simulation/progression/UpgradeSystem.ts`: purchases strictly through
+    EconomySystem, emits `upgrade-purchased`, hydrates defensively.
+  - Scene wiring: cook timers, dishwasher, staff walk speed, spawn interval,
+    patience, satisfaction, and tips all read live effects; purchases persist
+    via `upgradeLevels` (save field + migration + round-trip test).
+  - New "Upgrades" ops button + modal listing Lv, current->next effect, cost.
+  - `RestaurantSimulation` accepts `effects` so upgraded configs are tested
+    headlessly (chef speed, patience, carry through real runs).
+  - Fixed a self-recursion introduced during wiring (caught by headless boot
+    smoke: Maximum call stack exceeded).
+
 ## In progress
 
-- M4: upgrade definitions + effects applied through the simulation config
-  (chef speed, waiter speed/carry, spawn rate), then panel/UI wiring in the
-  scene.
+- M5/M6: verify expansion + content parity against plan, revive
+  `customers.ts` archetypes into the live loop.
 
 ## Next
 
