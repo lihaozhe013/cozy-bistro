@@ -1,20 +1,8 @@
 name: Deploy to GitHub Pages
 
-# Prod and staging are separate bundles on the SAME Pages site, served under the
-# custom domain cozy-bistro.com (CNAME file below):
-#   main    -> https://cozy-bistro.com/                     (3D prod — the game, at ROOT)
-#           -> https://cozy-bistro.com/classic/             (old 2D game, parked)
-#   staging -> https://cozy-bistro.com/staging/cozy-bistro-3d/ (3D staging)
-#
-# GitHub Pages allows only one published artifact per repo, so a single
-# workflow builds BOTH branches (checked out by ref into subdirs) and packs
-# them into one artifact. A push to either branch rebuilds both from their
-# own tips, so neither clobbers the other. The staging build is
-# continue-on-error + guarded, so a broken staging build never blocks the
-# prod deploy.
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -30,62 +18,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout prod (main)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: prod
-      - name: Checkout staging
-        uses: actions/checkout@v4
-        with:
-          ref: staging
-          path: staging
+      - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
-
-      # ---- PROD (from main): 3D at root, old 2D parked at /classic/ ----
-      - name: Build prod 2D (classic)
-        working-directory: prod
-        run: pnpm install --frozen-lockfile --filter cozy-bistro-prototype && pnpm --filter cozy-bistro-prototype run build
-      - name: Build prod 3D (v2)
-        working-directory: prod
-        env:
-          CB_BASE: /
-        run: pnpm install --frozen-lockfile --filter cozy-bistro-3d && pnpm --filter cozy-bistro-3d run build
-
-      # ---- STAGING (from staging): 3D only, at /staging/cozy-bistro-3d/ ----
-      # Its own base + staging-DB default baked in. Non-fatal: a broken
-      # staging build must never take prod down with it.
-      - name: Build staging 3D (v2)
-        id: staging_build
-        continue-on-error: true
-        working-directory: staging
-        env:
-          CB_BASE: /staging/cozy-bistro-3d/
-          CB_BUILD_ENV: staging
-        run: pnpm install --frozen-lockfile --filter cozy-bistro-3d && pnpm --filter cozy-bistro-3d run build
-
-      # ---- Assemble one Pages artifact ----
-      - name: Assemble site
-        run: |
-          # 3D game (v2) takes the site ROOT; the old 2D game is parked at /classic/.
-          mkdir -p dist/classic
-          cp -r prod/v2/dist/* dist/
-          cp -r prod/dist/* dist/classic/
-          # Custom domain — a CNAME file in the artifact keeps the domain bound on
-          # every Actions deploy (otherwise it can get cleared).
-          echo cozy-bistro.com > dist/CNAME
-          if [ -d staging/v2/dist ]; then
-            mkdir -p dist/staging/cozy-bistro-3d
-            cp -r staging/v2/dist/* dist/staging/cozy-bistro-3d/
-            echo "staging bundle packed"
-          else
-            echo "::warning::staging build produced no dist — deploying prod only"
-          fi
-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build game
+        run: pnpm run build
+      - name: Preserve custom domain
+        run: echo cozy-bistro.com > dist/CNAME
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

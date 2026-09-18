@@ -1,7 +1,7 @@
 import { expansionDefinitions, starterCells, type ExpansionDefinition } from "../../data/expansions";
 
 /**
- * Pure expansion progression rules (master_plan §28/§47): sequential level
+ * Pure expansion progression rules: sequential level
  * purchases, cost curve, and the luxury-tier unlock mapping.
  */
 
@@ -30,7 +30,7 @@ export function expansionRequiredForTier(tier: 1 | 2 | 3 | 4 | 5): number {
   return Math.max(0, tier - 1);
 }
 
-/** Purchasing is strictly sequential (plan §28). */
+/** Purchasing is strictly sequential. */
 export function canPurchaseExpansion(targetLevel: number, currentLevel: number): boolean {
   return targetLevel === currentLevel + 1 && Boolean(getExpansionDefinition(targetLevel));
 }

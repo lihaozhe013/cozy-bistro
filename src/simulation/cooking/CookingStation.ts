@@ -1,5 +1,5 @@
 /**
- * Cooking stations (master_plan §17). A station owns parallel slots; each
+ * Cooking stations for the gameplay contract in SPEC.md. A station owns parallel slots; each
  * slot cooks at most one order at a time. Time-based so it is trivially
  * deterministic in the headless simulation.
  */

@@ -1,5 +1,5 @@
 /**
- * Tiny synthesized sound effects (master_plan §42). WebAudio oscillators mean
+ * Tiny synthesized sound effects for the feedback contract in SPEC.md. WebAudio oscillators mean
  * zero audio assets and zero dependencies; the context is created lazily on
  * the first user gesture because browsers block autoplay.
  */

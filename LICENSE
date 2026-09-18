@@ -3,10 +3,9 @@ Copyright (c) 2024-2026 Andrew Stamelakis ("the Author").
 All Rights Reserved.
 
 This repository (the "Software") — including, without limitation, the
-source code under `v2/src/` and `v2/spacetime/`, the assets under
-`v2/public/` and `art_input/`, the build configuration, and any
-documentation, art, audio, or design materials authored in this
-project — is the proprietary work of the Author.
+source code under `src/` and `scripts/`, the assets under `src/assets/`, the
+build configuration, and any documentation, art, audio, or design materials
+authored in this project — is the proprietary work of the Author.
 
 The Author publishes this repository publicly on GitHub for
 demonstration, code-review, and portfolio purposes. Publication on a
@@ -54,8 +53,8 @@ Without the Author's prior, written permission you may NOT:
 
 THIRD-PARTY COMPONENTS
 
-The Software incorporates third-party libraries (e.g. three.js, the
-SpacetimeDB SDK, and the Kenney furniture asset pack) that are
+The Software incorporates third-party libraries (e.g. Phaser, TypeScript,
+Vite, Vitest, and Pillow) that are
 licensed under their own terms. Those third-party components remain
 governed by their respective licenses; this proprietary license
 applies ONLY to the Author's original work, not to the included

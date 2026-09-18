@@ -1,7 +1,6 @@
 # Architecture
 
-This document describes the current root 2D Phaser implementation. The separate
-`v2/` track is intentionally outside this architecture.
+This document describes the current root 2D Phaser implementation.
 
 ## Runtime layers
 
@@ -110,5 +109,5 @@ English.
   accumulators, so simulation speed is intentionally not partially implemented.
 - The configuration targets 30 FPS; changing it should follow measured browser
   profiling rather than a documentation-only target.
-- The root game and `v2/` have different architectures and deployment history;
-  do not merge their boundaries casually.
+- Keep new systems inside the root game's existing boundaries; do not reintroduce
+  an unrelated backend or rendering architecture as an implicit dependency.

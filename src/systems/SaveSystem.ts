@@ -14,12 +14,12 @@ export interface SaveLoadResult {
 }
 
 /**
- * localStorage save repository (master_plan §43-§45, §80, §90).
+ * localStorage save repository for the persistence contract in SPEC.md.
  *
  * Writes stamp `version` before serializing. Reads parse -> validate ->
  * migrate, and never delete data: unrecoverable payloads are moved to a
  * `*-corrupt-<timestamp>` key so a human can inspect them, while the game
- * continues from a safe default state (§58).
+ * continues from a safe default state.
  */
 export class SaveSystem {
   save(state: SaveGameState, slot = 1): { bytes: number; durationMs: number } {

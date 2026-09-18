@@ -2,7 +2,7 @@ import type { RecipeDefinition } from "../../components/types";
 import type { CustomerArchetypeId } from "../../data/customers";
 
 /**
- * Customer state machine (master_plan §12). Transitions are centralized in
+ * Customer state machine. Transitions are centralized in
  * RestaurantSimulation; this module owns the state vocabulary, allowed
  * transitions, and patience math so they can be reasoned about (and tested)
  * in isolation.
@@ -45,7 +45,7 @@ export interface SimCustomer {
   archetypeId: CustomerArchetypeId;
   seatIndex: number;
   orderRecipeIds: string[];
-  /** ms spent in queue/waiting states, used for patience (§13). */
+  /** ms spent in queue/waiting states, used for patience. */
   waitedMs: number;
   patienceMs: number;
   stateSince: number;

@@ -1,5 +1,5 @@
 /**
- * Gameplay event bus (master_plan §33). Simulation logic publishes facts;
+ * Gameplay event bus. Simulation logic publishes facts;
  * rendering, audio, and feedback systems subscribe. The simulation must never
  * import particle/audio code directly.
  */
@@ -52,7 +52,7 @@ export class EventBus {
       try {
         (listener as Listener<K>)(payload);
       } catch (error) {
-        // A broken subscriber must never take down the simulation (plan §58).
+        // A broken subscriber must never take down the simulation.
         console.error(`[event-bus] listener error for "${name}"`, error);
       }
     }

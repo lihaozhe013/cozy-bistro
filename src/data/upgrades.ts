@@ -1,7 +1,7 @@
 /**
- * Data-driven upgrade definitions (master_plan §25–§26).
+ * Data-driven upgrade definitions for the progression contract in SPEC.md.
  *
- * All operational upgrades are declarative: cost curves live here (plan §27),
+ * All operational upgrades are declarative: cost curves live here,
  * effects are compiled into a single UpgradeEffects bundle consumed by both
  * the Phaser scene and the headless simulation. Per-recipe value upgrades
  * are a separate, pre-existing system (CookingSystem recipe levels).
@@ -27,7 +27,7 @@ export interface UpgradeDefinition {
   description: string;
   maxLevel: number;
   baseCost: number;
-  /** Exponential cost growth (plan §27: 1.5–1.9). */
+  /** Exponential cost growth for readable progression pacing. */
   growthRate: number;
   /** Linear per-level effect; interpretation depends on the target. */
   perLevel: number;
@@ -138,7 +138,7 @@ export function getUpgradeDefinition(id: UpgradeTarget): UpgradeDefinition {
   return definition;
 }
 
-/** Cost to go from `level` to `level + 1` (exponential, plan §27). */
+/** Cost to go from `level` to `level + 1` using the definition's curve. */
 export function getUpgradeCost(id: UpgradeTarget, level: number): number {
   const definition = getUpgradeDefinition(id);
   if (level >= definition.maxLevel) {
@@ -183,7 +183,7 @@ export const defaultUpgradeEffects: UpgradeEffects = {
   attractivenessBonus: 0,
 };
 
-/** Compile a level map into concrete runtime effects (plan §25 apply()). */
+/** Compile a level map into concrete runtime effects. */
 export function computeUpgradeEffects(levels: Readonly<Record<string, number>>): UpgradeEffects {
   const level = (id: UpgradeTarget) => Math.max(0, Math.floor(levels[id] ?? 0));
   return {
@@ -200,7 +200,7 @@ export function computeUpgradeEffects(levels: Readonly<Record<string, number>>):
   };
 }
 
-/** Human-readable "current -> next" summary for the upgrade UI (plan §35). */
+/** Human-readable "current -> next" summary for the upgrade UI. */
 export function describeUpgradeEffect(id: UpgradeTarget, level: number): string {
   const next = level + 1;
   switch (id) {

@@ -17,8 +17,8 @@ Validation snapshot on 2026-09-18:
 
 ## Completed
 
-- **Repository audit:** chose the root Phaser game as the development target;
-  documented `v2/` as a separate 3D/SpacetimeDB track.
+- **Repository audit:** chose the root Phaser game as the sole development
+  target and removed the unrelated experimental track.
 - **Core architecture:** added deterministic clocks and RNG, stable entity IDs,
   typed events, versioned saves, migration/quarantine, centralized balance,
   content validation, and headless tests.
@@ -38,6 +38,10 @@ Validation snapshot on 2026-09-18:
 - **Internationalization:** added typed English/Chinese catalogs, Chinese as
   the default, runtime switching, localized content names, and CJK-safe text
   handling.
+- **Repository cleanup:** removed the obsolete 3D/SpacetimeDB track, imported
+  art inputs, superseded planning documents, and the temporary simulation
+  script; simplified the workspace, deployment, and package setup to the root
+  game.
 
 ## In progress
 
@@ -57,8 +61,7 @@ Validation snapshot on 2026-09-18:
 
 ## Architectural decisions
 
-1. The root 2D game is the canonical track for this specification. `v2/` is
-   independent and is not a source of requirements.
+1. The root 2D game is the sole canonical track for this specification.
 2. Existing working behavior is preserved through incremental extraction, not a
    speculative rewrite.
 3. Gameplay rules are tested without booting Phaser whenever practical.

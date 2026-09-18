@@ -1,7 +1,7 @@
 import type { RecipeDefinition } from "../../components/types";
 
 /**
- * Orders as first-class entities (master_plan §15). The scene's MealTicket
+ * Orders as first-class entities. The scene's MealTicket
  * struct mirrors these states so live and headless semantics stay aligned.
  */
 
@@ -16,7 +16,7 @@ export interface Order {
   cookingStartedAt?: number;
   readyAt?: number;
   servedAt?: number;
-  /** Reservation (plan §21): the waiter that claimed this ready order. */
+  /** Reservation: the waiter that claimed this ready order. */
   reservedBy?: string;
 }
 
@@ -26,7 +26,7 @@ export function isTerminalOrderState(state: OrderState): boolean {
   return terminalStates.includes(state);
 }
 
-/** Central queue helpers (plan §15): pending cooking / cooking / ready for delivery. */
+/** Central queue helpers for pending, cooking, and ready-for-delivery orders. */
 export class OrderQueue {
   private orders = new Map<string, Order>();
 
@@ -57,7 +57,7 @@ export class OrderQueue {
     return this.all().filter((order) => order.guestId === guestId);
   }
 
-  /** Oldest first — the default chef policy (plan §19). */
+  /** Oldest first — the default chef policy. */
   queuedOrders(): Order[] {
     return this.byState("queued").sort((a, b) => a.createdAt - b.createdAt);
   }

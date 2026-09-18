@@ -1,5 +1,5 @@
 /**
- * Stable entity identifiers (master_plan §10). Saved state must never rely on
+ * Stable entity identifiers. Saved state must never rely on
  * Phaser-generated ids; these are our own collision-resistant-enough ids for
  * a single-player save.
  */

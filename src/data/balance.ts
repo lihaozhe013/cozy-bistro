@@ -1,5 +1,5 @@
 /**
- * Central tunable game balance (master_plan §77).
+ * Central tunable game balance for the tuning contract in SPEC.md.
  *
  * Gameplay-tuning numbers live here so rebalancing does not require searching
  * the whole codebase. `GameScene` imports these instead of declaring its own
@@ -81,7 +81,7 @@ export const defaultExpansionCostMultiplier = 1.5;
 // --- Offline progress ---
 /** Minimum away-time before an offline summary is shown (seconds). */
 export const offlineMinElapsedSeconds = 60;
-/** Hard cap on counted offline time (plan §46). */
+/** Hard cap on counted offline time; see the persistence contract in SPEC.md. */
 export const offlineCapSeconds = 8 * 60 * 60;
 /** Safety cap on guests simulated into the estimate per offline window. */
 export const offlineMaxServedGuests = 500;

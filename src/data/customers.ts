@@ -1,5 +1,5 @@
 /**
- * Customer archetypes (master_plan §14). Three readable types keep behavior
+ * Customer archetypes for the gameplay contract in SPEC.md. Three readable types keep behavior
  * variety without premature complexity; the plan's MVP requires 3 variants.
  */
 
@@ -14,7 +14,7 @@ export interface CustomerArchetypeDefinition {
   patienceMultiplier: number;
   /** Eating duration scaling. */
   eatingTimeMultiplier: number;
-  /** Bill scaling (customer multiplier in the revenue formula, plan §24). */
+  /** Bill scaling used by the revenue formula. */
   orderValueMultiplier: number;
   /** Range of dishes ordered per visit. */
   minOrderItems: number;

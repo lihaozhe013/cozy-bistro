@@ -107,7 +107,7 @@ describe("FurniturePlacementSystem", () => {
     expect(placement.removeAt({ x: 2, y: 2 }).ok).toBe(false);
   });
 
-  it("every catalog id resolves to a definition (startup validation §79)", () => {
+  it("every catalog id resolves to a definition", () => {
     const { placement } = createSystem();
     placement.selectCatalogItem("square-table");
     expect(placement.tryPlaceSelected({ x: 1, y: 1 }).ok).toBe(true);

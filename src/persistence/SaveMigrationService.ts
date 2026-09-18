@@ -11,7 +11,8 @@ import type {
 import { CURRENT_SAVE_VERSION } from "./SaveGame";
 
 /**
- * Save migration + validation (master_plan §44 / §80). Raw localStorage JSON
+ * Save migration + validation for the save-integrity contract in SPEC.md. Raw
+ * localStorage JSON
  * is never trusted: it is parsed, shape-validated, and migrated to the
  * current version, or rejected so the caller can start a safe default game.
  */
@@ -300,7 +301,7 @@ export function migrateSave(raw: unknown): MigrationResult {
         : undefined,
   };
 
-  // Ticket references must point at persisted guests; drop orphans (§58).
+  // Ticket references must point at persisted guests; drop orphans.
   if (result.guests && result.tickets) {
     const guestIds = new Set(result.guests.map((guest) => guest.id));
     result.tickets = result.tickets.filter((ticket) => guestIds.has(ticket.guestId));

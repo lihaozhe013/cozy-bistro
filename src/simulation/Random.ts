@@ -1,5 +1,5 @@
 /**
- * Injectable randomness for deterministic simulation (master_plan §57).
+ * Injectable randomness for deterministic simulation.
  *
  * Helpers mirror the Phaser math utilities the systems used previously so
  * behaviour is preserved when a `SeededRandom` or `PhaserRandom` source is

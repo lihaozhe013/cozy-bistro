@@ -1,9 +1,0 @@
-node_modules/
-dist/
-.vite/
-*.log
-.DS_Store
-.env
-.env.local
-# Generated character GLBs ARE committed so users don't have to
-# regenerate. The regeneration script is in scripts/generate_triposr.py.

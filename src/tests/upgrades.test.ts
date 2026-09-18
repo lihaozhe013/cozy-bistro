@@ -12,7 +12,7 @@ const menu: RecipeDefinition[] = ["toast", "soup", "pasta", "lemonade"]
   .map((id) => recipes.find((recipe) => recipe.id === id))
   .filter((recipe): recipe is RecipeDefinition => Boolean(recipe));
 
-describe("upgrade definitions (plan §25-§27)", () => {
+describe("upgrade definitions", () => {
   it("has at least 10 meaningful upgrades", () => {
     expect(upgradeDefinitions.length).toBeGreaterThanOrEqual(10);
     expect(new Set(upgradeDefinitions.map((definition) => definition.id)).size).toBe(upgradeDefinitions.length);

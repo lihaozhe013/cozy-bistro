@@ -19,14 +19,9 @@ supporting documents. If a document conflicts with the code, tests, or
 - [`AI_PROGRESS.md`](AI_PROGRESS.md) — dated implementation history and the
   current validation snapshot.
 
-## Separate track
+## Removed material
 
-The `v2/` directory is a separate Three.js + SpacetimeDB track. Its local
-README and documents describe that track only; they are not requirements for
-the root 2D game.
-
-## Archive
-
-[`archive/`](archive/) contains superseded plans, duplicate concept notes, and
-historical audits kept for context. Archived documents are not normative and
-should not be extended.
+Superseded plans, duplicate concept notes, imported art inputs, and the separate
+3D/SpacetimeDB project were intentionally removed during the 2026-09 cleanup.
+Git history remains the recovery path for material that is no longer part of
+the product.

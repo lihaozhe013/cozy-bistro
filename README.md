@@ -5,8 +5,7 @@ game. The player arranges a small bistro, hires staff, serves autonomous
 customers, and grows the restaurant through visible upgrades and expansions.
 
 The root `src/` game is the canonical development track described by
-[`SPEC.md`](SPEC.md). The separate `v2/` directory contains an older 3D /
-SpacetimeDB track and is not required for root-game development.
+[`SPEC.md`](SPEC.md).
 
 ## Run the root game
 
@@ -17,12 +16,6 @@ pnpm dev
 
 Open the Vite URL printed in the terminal, usually
 `http://127.0.0.1:5173`.
-
-To run the separate 3D track instead:
-
-```bash
-pnpm dev:v2
-```
 
 ## Verification
 
@@ -75,9 +68,7 @@ src/
 scripts/generate_atlases.py
   procedural and input-driven atlas generation
 docs/
-  active documentation and historical archive
-v2/
-  separate 3D/SpacetimeDB track
+  active documentation
 ```
 
 ## Documentation

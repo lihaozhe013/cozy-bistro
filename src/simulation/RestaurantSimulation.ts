@@ -24,7 +24,7 @@ import {
 } from "./staff/StaffTasks";
 
 /**
- * Headless restaurant service-loop simulation (master_plan §9).
+ * Headless restaurant service-loop simulation for the architecture contract in SPEC.md.
  *
  * Executable specification of the customer service loop (M2) and staff
  * automation (M3): customers order, tickets queue, chefs cook oldest-first
@@ -39,7 +39,7 @@ import {
 export interface StationConfig {
   id: string;
   slotCount: number;
-  /** Station-level cook speed multiplier (kitchen upgrades, plan §17). */
+  /** Station-level cook speed multiplier from kitchen upgrades. */
   speedMultiplier?: number;
 }
 
@@ -265,7 +265,7 @@ export class RestaurantSimulation {
     return plan ? plan.orderIds.slice(plan.nextIndex) : [];
   }
 
-  /** Rolling balance metrics for the M8 instrumentation pass (plan §53). */
+  /** Rolling balance metrics exposed by the diagnostics overlay. */
   getMetrics(): SimulationMetrics {
     const chefCount = this.staffList.filter((staff) => staff.role === "chef").length;
     const waiterCount = this.staffList.filter((staff) => staff.role === "waiter").length;
@@ -502,7 +502,7 @@ export class RestaurantSimulation {
         }
         order.state = "ready";
         order.readyAt = this.clock.now();
-        // Chef reservation ends at the pass; waiters claim from here (§21).
+        // Chef reservation ends at the pass; waiters claim from here.
         this.reservations.releaseTarget({ type: "order", id: order.id });
         this.events.emit("order-ready", { ticketId: order.id, recipeId: order.recipe.id });
       }
@@ -539,7 +539,7 @@ export class RestaurantSimulation {
 
   private selectChefTask(chef: SimStaff): void {
     for (const order of this.orders.queuedOrders()) {
-      // Oldest order first (§19); reservation prevents double cooking (§21).
+      // Oldest order first; reservation prevents double cooking.
       if (!this.reservations.reserve(chef.id, { type: "order", id: order.id })) {
         continue;
       }
@@ -569,7 +569,7 @@ export class RestaurantSimulation {
       return;
     }
 
-    // Priority 1: deliver prepared food (§20), batching up to carry capacity.
+    // Priority 1: deliver prepared food, batching up to carry capacity.
     const claimed: string[] = [];
     for (const order of this.orders.readyOrders()) {
       if (claimed.length >= this.config.waiterCarryCapacity) {
@@ -652,7 +652,7 @@ export class RestaurantSimulation {
     const plan = this.deliveryPlans.get(waiter.id);
     const order = this.orders.get(task.orderId);
     if (!plan || !order || order.state !== "ready") {
-      // Invalid task target: release and return to idle (§58).
+      // Invalid task target: release and return to idle.
       if (order?.state === "ready") {
         this.reservations.release(waiter.id, { type: "order", id: order.id });
       }

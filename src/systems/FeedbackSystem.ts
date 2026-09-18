@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { FONTS } from "../i18n/fonts";
 
 /**
- * Reusable visual feedback (master_plan §31/§32): floating text, scale
+ * Reusable visual feedback for the presentation contract in SPEC.md: floating text, scale
  * bounces, and small particle bursts. One implementation, referenced by type
  * tone; everything is tween-based and self-destructing so callers never have
  * to manage lifetimes.
@@ -61,7 +61,7 @@ export class FeedbackSystem {
     });
   }
 
-  /** Cheap radial sparkle burst without a texture atlas (plan §31 "particles"). */
+  /** Cheap radial sparkle burst without a texture atlas. */
   showBurst(x: number, y: number, color = 0xffd966, count = 10, radius = 34): void {
     const graphics = this.scene.add.graphics().setDepth(this.depth);
     this.layer.add(graphics);

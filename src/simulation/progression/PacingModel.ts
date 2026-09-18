@@ -1,5 +1,5 @@
 /**
- * Headless progression-pacing model (master_plan §50/§85).
+ * Headless progression-pacing model for the tuning contract in SPEC.md.
  *
  * The live scene cannot run in vitest, so this module projects minute-by-minute
  * economy from the SAME data files the game uses (recipes, upgrade cost curves,

@@ -1,8 +1,7 @@
 # Asset Pipeline
 
 This document describes the current visual asset workflow for the root 2D game.
-It replaces the older character notes and the broad art-upgrade plan, which are
-kept in [`archive/`](archive/) as historical references.
+It consolidates the older character notes and broad art-upgrade plan.
 
 ## Source and generated assets
 

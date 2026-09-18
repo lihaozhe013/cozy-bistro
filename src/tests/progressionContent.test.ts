@@ -18,7 +18,7 @@ import type { RecipeDefinition } from "../components/types";
 
 const menu: RecipeDefinition[] = recipes.filter((recipe) => (recipe.luxuryTier ?? 1) <= 2);
 
-describe("expansion progression (M5, plan §28)", () => {
+describe("expansion progression", () => {
   it("has at least 3 purchaseable areas with unique sign positions", () => {
     expect(expansionDefinitions.length).toBeGreaterThanOrEqual(3);
     const levels = expansionDefinitions.map((definition) => definition.level);
@@ -61,7 +61,7 @@ describe("expansion progression (M5, plan §28)", () => {
   });
 });
 
-describe("customer archetypes (M6, plan §14)", () => {
+describe("customer archetypes", () => {
   it("ships exactly the three planned types with sane modifiers", () => {
     expect(customerArchetypes.map((archetype) => archetype.id)).toEqual(["regular", "foodie", "family"]);
     for (const archetype of customerArchetypes) {
@@ -116,7 +116,7 @@ describe("customer archetypes (M6, plan §14)", () => {
   });
 });
 
-describe("content validation covers new systems (plan §79)", () => {
+describe("content validation covers new systems", () => {
   it("no content errors at startup", () => {
     const issues = validateContent();
     expect(issues.filter((issue) => issue.severity === "error")).toEqual([]);

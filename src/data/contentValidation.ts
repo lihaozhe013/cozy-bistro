@@ -1,5 +1,5 @@
 /**
- * Startup validation of data-driven content (master_plan §79). Development
+ * Startup validation of data-driven content for the data contract in SPEC.md.
  * builds should fail loudly when content references are broken.
  */
 

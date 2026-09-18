@@ -1,7 +1,8 @@
 import type { SaveGameState } from "../components/types";
 
 /**
- * Save format versioning (master_plan §43). Bump when the on-disk shape
+ * Save format versioning for the save-integrity contract in SPEC.md. Bump when
+ * the on-disk shape
  * changes and register a migration in SaveMigrationService.
  */
 export const CURRENT_SAVE_VERSION = 1;

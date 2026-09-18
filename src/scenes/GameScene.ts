@@ -676,7 +676,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Fail early on broken content data in development (plan §79). The scene
+    // Fail early on broken content data in development. The scene
     // update loop's error guard surfaces the problem on the debug overlay.
     assertContentValidOrWarn();
     this.saveSystem = new SaveSystem();

@@ -40,7 +40,7 @@ export class CustomerSystem {
     return estimateSpawnRate(attractiveness, seatCount, menuQuality, averageRating);
   }
 
-  /** Weighted archetype roll (plan §14). */
+  /** Weighted archetype roll. */
   rollCustomerArchetype(): CustomerArchetypeDefinition {
     const totalWeight = customerArchetypes.reduce((sum, archetype) => sum + archetype.weight, 0);
     let roll = this.random.next() * totalWeight;
@@ -180,7 +180,7 @@ export class CustomerSystem {
 }
 
 /**
- * Pure form of the spawn-rate heuristic (plan §7). Exported so headless
+ * Pure form of the spawn-rate heuristic. Exported so headless
  * tools (pacing model, offline estimates) reuse the exact live formula.
  */
 export function estimateSpawnRate(attractiveness: number, seatCount: number, menuQuality: number, averageRating = 3): number {

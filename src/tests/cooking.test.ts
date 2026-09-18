@@ -83,7 +83,7 @@ describe("CookingSystem pantry", () => {
   });
 });
 
-describe("recipe data integrity (plan §79)", () => {
+describe("recipe data integrity", () => {
   it("recipe ids are unique", () => {
     const ids = recipes.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);

@@ -1,5 +1,5 @@
 /**
- * Staff task model (master_plan §18–§21). Every unit of staff work is an
+ * Staff task model. Every unit of staff work is an
  * explicit, reservable task so two staff members can never claim the same
  * job. Deep nested scene conditionals are replaced by "select task ->
  * execute -> complete" in RestaurantSimulation.
@@ -30,7 +30,7 @@ export function taskTarget(task: StaffTask): TaskTarget {
 }
 
 /**
- * Reservation ledger (§21). A staff member reserves a task's target before
+ * Reservation ledger. A staff member reserves a task's target before
  * acting; the reservation is released on completion or when the task becomes
  * invalid. Re-reserving the same target by the same staff is a no-op.
  */
@@ -84,7 +84,7 @@ export class TaskReservationRegistry {
     return released;
   }
 
-  /** Drop reservations whose targets no longer exist (invalidation sweep, §21/§58). */
+  /** Drop reservations whose targets no longer exist during an invalidation sweep. */
   prune(validTargetKeys: Set<string>): void {
     for (const key of [...this.reserved.keys()]) {
       if (!validTargetKeys.has(key)) {

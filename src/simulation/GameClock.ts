@@ -1,7 +1,7 @@
 /**
- * Centralized time abstraction (master_plan §11). Gameplay logic reads time
+ * Centralized time abstraction for deterministic gameplay. Gameplay logic reads time
  * through a GameClock instead of calling Date.now()/performance.now()
- * directly, so timers can be tested and simulation speed can be scaled (§54).
+ * directly, so timers can be tested and scaled deliberately.
  */
 
 export interface GameClock {
@@ -42,7 +42,7 @@ export class ManualClock implements GameClock {
 /**
  * Phaser scene-time adapter. The scene's update loop already receives a
  * monotonic ms timestamp; this feeds it into the clock interface. Debug speed
- * changes (plan §54) would scale the delta upstream in the scene loop, so the
+ * changes would scale the delta upstream in the scene loop, so the
  * simulation itself remains oblivious to the scale factor.
  */
 export class SceneClock implements GameClock {

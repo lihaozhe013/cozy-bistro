@@ -5,22 +5,15 @@ Last reviewed: 2026-09-18
 
 This is the source of truth for continued development of the root `src/` game.
 It records the current product direction, the behavior that already exists, and
-the constraints that future changes must respect. The historical autonomous
-plan is retained in [`docs/archive/master_plan-legacy.md`](docs/archive/master_plan-legacy.md)
-for context only; it is not a future task list.
+the constraints that future changes must respect. It supersedes the old
+autonomous plan; that plan is no longer part of the working tree or the active
+development process.
 
 When an old note, an upstream assumption, and this document disagree, use this
 document plus the running code and tests. Update this document when a product
 decision changes.
 
 ## 1. Scope and project tracks
-
-The repository contains two runnable tracks:
-
-| Track | Location | Role |
-| --- | --- | --- |
-| Cozy Bistro 2D | root `src/`, root `package.json` | Canonical development track for this specification. |
-| Cozy Bistro 3D | `v2/` | Separate legacy/experimental Three.js + SpacetimeDB track. Its code and documents are not governed by this specification. |
 
 The root game is an original private game project. It does not promise
 compatibility with an upstream game, its content, its backend, or its future
@@ -250,7 +243,7 @@ These are possibilities, not commitments:
 - Social visits, leaderboards, or remote saves after a separate product
   decision.
 - A backend or multiplayer version based on a deliberately designed new
-  boundary, not by importing the `v2/` architecture into the root game.
+  boundary, not by importing an unrelated architecture into the root game.
 
 Do not start a deferred idea while a P0/P1 reliability issue, save issue, or
 core service-loop regression remains unresolved.

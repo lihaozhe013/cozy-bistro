@@ -1,5 +1,5 @@
 /**
- * Pure offline-progress estimate (master_plan §46 + M9 acceptance).
+ * Pure offline-progress estimate for the persistence contract in SPEC.md.
  *
  * All arithmetic that turns "time away" into rewards lives here: the 8h cap,
  * served-guest cycling, pantry limits, shopping budget and service rating.

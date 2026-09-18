@@ -1,7 +1,7 @@
 import type { GridPosition } from "../components/types";
 
 /**
- * Restaurant expansion definitions (master_plan §28). Areas are visible and
+ * Restaurant expansion definitions for the progression contract in SPEC.md. Areas are visible and
  * purchasable in order; each carries its grid cells and an in-world sign
  * position. Locked areas render a lock + price sign so the player can see
  * what they are saving toward.

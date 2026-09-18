@@ -10,7 +10,7 @@ import type { EconomySystem } from "../../systems/EconomySystem";
 import type { EventBus } from "../EventBus";
 
 /**
- * Owns purchased upgrade levels and their runtime effects (master_plan §25).
+ * Owns purchased upgrade levels and their runtime effects.
  * All transactions go through EconomySystem; purchases emit
  * `upgrade-purchased` so feedback/audio can subscribe.
  */
