@@ -56,7 +56,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     description: "One waiter trip can deliver more plates.",
     maxLevel: 3,
     baseCost: 400,
-    growthRate: 2.3,
+    growthRate: 1.9,
     perLevel: 1,
   },
   {

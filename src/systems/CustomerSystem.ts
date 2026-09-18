@@ -37,16 +37,7 @@ export class CustomerSystem {
   }
 
   estimateSpawnRate(attractiveness: number, seatCount: number, menuQuality: number, averageRating = 3): number {
-    if (seatCount === 0) {
-      return 0;
-    }
-
-    const decorPull = Math.max(0, Math.min(1, (attractiveness - 1) / 4));
-    const ratingPull = Math.max(0, Math.min(1, (averageRating - 1) / 4));
-    const menuPull = Math.max(0.25, Math.min(1.15, 0.25 + menuQuality * 0.08));
-    const seatPull = seatCount * (0.08 + decorPull * 0.9);
-    const reputationPull = 0.3 + ratingPull * 1.5;
-    return Math.max(1, Math.round(seatPull * reputationPull * menuPull));
+    return estimateSpawnRate(attractiveness, seatCount, menuQuality, averageRating);
   }
 
   /** Weighted archetype roll (plan §14). */
@@ -186,4 +177,21 @@ export class CustomerSystem {
     this.dailyServed = save?.dailyServed ?? 0;
     this.dailyLost = save?.dailyLost ?? 0;
   }
+}
+
+/**
+ * Pure form of the spawn-rate heuristic (plan §7). Exported so headless
+ * tools (pacing model, offline estimates) reuse the exact live formula.
+ */
+export function estimateSpawnRate(attractiveness: number, seatCount: number, menuQuality: number, averageRating = 3): number {
+  if (seatCount === 0) {
+    return 0;
+  }
+
+  const decorPull = Math.max(0, Math.min(1, (attractiveness - 1) / 4));
+  const ratingPull = Math.max(0, Math.min(1, (averageRating - 1) / 4));
+  const menuPull = Math.max(0.25, Math.min(1.15, 0.25 + menuQuality * 0.08));
+  const seatPull = seatCount * (0.08 + decorPull * 0.9);
+  const reputationPull = 0.3 + ratingPull * 1.5;
+  return Math.max(1, Math.round(seatPull * reputationPull * menuPull));
 }

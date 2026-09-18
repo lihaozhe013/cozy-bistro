@@ -606,6 +606,7 @@ export class GameScene extends Phaser.Scene {
   private recentServedGuests: RateSample[] = [];
   private recentLostGuests: RateSample[] = [];
   private recentRevenue: RateSample[] = [];
+  private recentTicketWaitMs: number[] = [];
   private recentExpenses: RateSample[] = [];
   private recentCookedDishes: RateSample[] = [];
   private recentDeliveredDishes: RateSample[] = [];
@@ -3056,6 +3057,16 @@ export class GameScene extends Phaser.Scene {
     this.setRightTab("ops");
   }
 
+  private countBusyRole(role: "chef" | "waiter"): string {
+    const staff = this.actors.filter((actor) => actor.role === role);
+    const busy = staff.filter((actor) => actor.task !== "idle").length;
+    return `${busy}/${staff.length}`;
+  }
+
+  private countSeatedGuests(): number {
+    return this.guests.filter((guest) => ["waitingToOrder", "waitingForFood", "served", "paying"].includes(guest.state)).length;
+  }
+
   private createDebugOverlay(): void {
     this.debugText = this.add
       .text(1142, 92, "", {
@@ -3100,6 +3111,7 @@ export class GameScene extends Phaser.Scene {
       `$/min ${revenuePerMinute.toFixed(0)}  guests/min ${guestsPerMinute.toFixed(1)}  served/min ${servedPerMinute.toFixed(1)}  lost/min ${lostPerMinute.toFixed(1)}`,
       `queued ${queued.length}  ready ${readyJobs}  kitchen pressure ${(kitchenWaitMs / 1000).toFixed(0)}s  dirty seats ${this.dirtySeatUids.size}`,
       `chef [${chefTasks}]  waiter [${waiterTasks}]`,
+      `wait ${this.recentTicketWaitMs.length === 0 ? "-" : `${Math.round(this.recentTicketWaitMs.reduce((sum, ms) => sum + ms, 0) / this.recentTicketWaitMs.length / 1000)}s`} avg (last ${this.recentTicketWaitMs.length})  chef ${this.countBusyRole("chef")}  waiter ${this.countBusyRole("waiter")}  seats ${this.countSeatedGuests()}/${this.getDiningSeats().filter((seat) => !seat.disabled).length}`,
       `money $${this.economy.getMoney().toFixed(0)}  upgrades ${upgradeLevels}  day ${this.dayCycle.getDayNumber()}  rep ${this.reputation.getAverageRating().toFixed(2)}`,
       `Draw ${this.furnitureRenderRate}/s ${this.lastFurnitureRenderMs.toFixed(1)}ms  Save ${this.lastSaveMs.toFixed(1)}ms (${this.saveSystem.getSaveSizeBytes(this.currentSaveSlot)}b)  Path ${this.pathfindingAverageMs.toFixed(2)}ms  save v${CURRENT_SAVE_VERSION}`,
     ].join("\n");
@@ -11002,6 +11014,10 @@ export class GameScene extends Phaser.Scene {
         ticket.state = "delivered";
         ticket.serviceKind = undefined;
         ticket.serviceStartedAt = undefined;
+        this.recentTicketWaitMs.push(Math.max(0, this.time.now - ticket.createdAt));
+        if (this.recentTicketWaitMs.length > 30) {
+          this.recentTicketWaitMs.shift();
+        }
         gameEvents.emit("order-served", { ticketId: ticket.id, guestId: guest.id, recipeId: ticket.recipe.id });
         this.addGuestBillForTicket(guest, ticket);
         this.showWaiterCarriedPlate(waiter, false);

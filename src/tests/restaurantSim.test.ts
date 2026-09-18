@@ -279,3 +279,34 @@ describe("TaskReservationRegistry", () => {
     expect(registry.isReserved({ type: "seat", id: "2" })).toBe(false);
   });
 });
+
+describe("RestaurantSimulation balance metrics (M8 instrumentation)", () => {
+  it("accumulates deterministic wait and utilization metrics across a full run", () => {
+    const { sim } = createSim({ seatCount: 3, maxGuests: 8 });
+    expect(sim.runUntil(() => sim.everyoneFinished(), 20 * 60 * 1000)).toBe(true);
+    const metrics = sim.getMetrics();
+
+    expect(metrics.servedOrders).toBeGreaterThanOrEqual(8);
+    expect(metrics.averageWaitMs).toBeGreaterThan(0);
+    for (const ratio of [metrics.chefUtilization, metrics.waiterUtilization, metrics.tableUtilization]) {
+      expect(ratio).toBeGreaterThan(0);
+      expect(ratio).toBeLessThanOrEqual(1);
+    }
+
+    // Metrics are pure history: a second read must be identical.
+    expect(sim.getMetrics()).toEqual(metrics);
+  });
+
+  it("reports zeros before anything runs", () => {
+    const { sim } = createSim();
+    const metrics = sim.getMetrics();
+    expect(metrics).toEqual({
+      elapsedMs: 0,
+      servedOrders: 0,
+      averageWaitMs: 0,
+      chefUtilization: 0,
+      waiterUtilization: 0,
+      tableUtilization: 0,
+    });
+  });
+});

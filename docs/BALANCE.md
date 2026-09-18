@@ -99,3 +99,26 @@ timings are representative, not scene-identical.
 First purchase < 60 s · first upgrade < 2 min · first expansion < 8–15 min ·
 full run 30–60 min. Current expansion #1 at $5,000 is likely too steep for
 15 minutes; M8 will test 1,200–2,500.
+
+## Final progression values (M8 tuning, 2026-09-17)
+
+Tuned via `src/simulation/progression/PacingModel.ts` (reuses the live spawn-rate
+formula, real recipe economics, real upgrade/expansion cost curves) with a
+goal-hoarding purchase policy. `src/tests/pacing.test.ts` locks the envelope:
+
+| Knob | Before | After | Where |
+| --- | --- | --- | --- |
+| First expansion cost | $5,000 | **$900** | `balance.ts defaultFirstExpansionCost` |
+| Expansion cost multiplier | 2.0 | **1.5** | `balance.ts defaultExpansionCostMultiplier` |
+| Serving Trays growth | 2.3 | **1.9** | `upgrades.ts` (plan §27 band is 1.5–1.9; old value violated it) |
+
+Projected pacing (model, deterministic): expansion 1 ≈ 33 min, core upgrades
+(80% of levels) ≈ 55 min, all 8 expansions ≈ ~3 h long tail. Model is a
+steady-state upper bound (no pathing/patience losses), so live play is expected
+slightly slower — expansions remain admin-tunable at runtime.
+
+Model assumptions (documented constants in PacingModel.ts): starter room fits
+3 tables (6 seats); each expansion adds 4-10 seats per `seatsPerExpansionLevel`;
+table set $95; hiring chef/waiter per StaffSystem formula; seat cycle 1.0 min;
+waiter trip 12 s base. Deviating from these only shifts absolute minutes, not
+the ordering.

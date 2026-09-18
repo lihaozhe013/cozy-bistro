@@ -100,7 +100,19 @@ interface WaiterDeliveryPlan {
   phase: "to-counter" | "to-table";
 }
 
+export interface SimulationMetrics {
+  elapsedMs: number;
+  servedOrders: number;
+  averageWaitMs: number;
+  /** Busy time / available staff time over the run (0..1). */
+  chefUtilization: number;
+  waiterUtilization: number;
+  /** Occupied seat-time / total seat-time over the run (0..1). */
+  tableUtilization: number;
+}
+
 export interface SimulationSnapshot {
+  metrics: SimulationMetrics;
   timeMs: number;
   money: number;
   guestsServed: number;
@@ -129,6 +141,12 @@ export class RestaurantSimulation {
   private readonly seatOccupancy = new Map<number, string>();
   private nextSpawnAt = 500;
   private servedCount = 0;
+  private totalWaitMs = 0;
+  private waitSamples = 0;
+  private elapsedMs = 0;
+  private chefBusyMs = 0;
+  private waiterBusyMs = 0;
+  private seatOccupiedMs = 0;
   private lostCount = 0;
   private spawnedCount = 0;
 
@@ -196,6 +214,18 @@ export class RestaurantSimulation {
   /** Advance the whole simulation by one fixed step. */
   step(deltaMs: number): void {
     const now = this.clock.now();
+    this.elapsedMs += deltaMs;
+    for (const staff of this.staffList) {
+      if (!staff.task) {
+        continue;
+      }
+      if (staff.role === "chef") {
+        this.chefBusyMs += deltaMs;
+      } else if (staff.role === "waiter") {
+        this.waiterBusyMs += deltaMs;
+      }
+    }
+    this.seatOccupiedMs += this.seatOccupancy.size * deltaMs;
     this.tickStaff(deltaMs);
     this.tickStations(deltaMs);
     this.tickGuests(deltaMs, now);
@@ -235,8 +265,23 @@ export class RestaurantSimulation {
     return plan ? plan.orderIds.slice(plan.nextIndex) : [];
   }
 
+  /** Rolling balance metrics for the M8 instrumentation pass (plan §53). */
+  getMetrics(): SimulationMetrics {
+    const chefCount = this.staffList.filter((staff) => staff.role === "chef").length;
+    const waiterCount = this.staffList.filter((staff) => staff.role === "waiter").length;
+    return {
+      elapsedMs: this.elapsedMs,
+      servedOrders: this.waitSamples,
+      averageWaitMs: this.waitSamples === 0 ? 0 : Math.round(this.totalWaitMs / this.waitSamples),
+      chefUtilization: chefCount === 0 || this.elapsedMs === 0 ? 0 : this.chefBusyMs / (chefCount * this.elapsedMs),
+      waiterUtilization: waiterCount === 0 || this.elapsedMs === 0 ? 0 : this.waiterBusyMs / (waiterCount * this.elapsedMs),
+      tableUtilization: this.config.seatCount === 0 || this.elapsedMs === 0 ? 0 : this.seatOccupiedMs / (this.config.seatCount * this.elapsedMs),
+    };
+  }
+
   snapshot(): SimulationSnapshot {
     return {
+      metrics: this.getMetrics(),
       timeMs: this.clock.now(),
       money: this.economy.getMoney(),
       guestsServed: this.servedCount,
@@ -642,6 +687,8 @@ export class RestaurantSimulation {
   private serveOrder(order: Order): void {
     order.state = "served";
     order.servedAt = this.clock.now();
+    this.totalWaitMs += order.servedAt - order.createdAt;
+    this.waitSamples += 1;
     const guest = this.guestList.find((item) => item.id === order.guestId);
     if (guest) {
       guest.servedValue += order.recipe.sellPrice;

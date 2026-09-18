@@ -73,8 +73,10 @@ export const defaultRentPerExpansion = 0;
 export const starterExpansionLevel = 0;
 export const legacyExpansionLevel = 2;
 export const maxExpansionLevel = 8;
-export const defaultFirstExpansionCost = 5000;
-export const defaultExpansionCostMultiplier = 2;
+// M8 pacing pass: goal-hoarding playthrough reaches expansion 1 + core upgrades
+// inside the plan's 30-60 min window (see pacing.test.ts envelope).
+export const defaultFirstExpansionCost = 900;
+export const defaultExpansionCostMultiplier = 1.5;
 
 // --- Offline progress ---
 /** Minimum away-time before an offline summary is shown (seconds). */

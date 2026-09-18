@@ -4,9 +4,7 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 8/9 follow-up: manual playtest tuning (needs a human), then
-M9 review of offline settings. Autonomous work continues on M10/M11 as
-time allows.
+Milestone 9 — Offline progress refactor (deterministic reward, 8h cap).
 
 ## Completed
 
