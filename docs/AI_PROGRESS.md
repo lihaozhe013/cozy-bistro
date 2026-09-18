@@ -4,7 +4,9 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 8 — Balance/instrumentation pass (sim speed controls, metrics).
+Milestone 8/9 follow-up: manual playtest tuning (needs a human), then
+M9 review of offline settings. Autonomous work continues on M10/M11 as
+time allows.
 
 ## Completed
 
@@ -116,10 +118,19 @@ Milestone 8 — Balance/instrumentation pass (sim speed controls, metrics).
     handlers live (full visual verification is manual — headless Chrome
     cannot observe canvas pixels; flagged under Known issues).
 
-## In progress
-
-- M8: debug overlay F2 toggle + sim-speed clock scaling decision; metrics
-  already computed by sim tests (revenue, utilization via staff work/idle).
+- **M8 partial: instrumentation** (2026-09-17):
+  - F2 toggles a multi-line debug overlay (plan §53): FPS, guests, jobs,
+    tweens/timers, revenue/min, guests-min, served/lost-min, kitchen queue
+    length + pressure age (new per-ticket createdAt), dirty seats, live
+    chef/waiter task lists, money, upgrade levels, day, rating, draw/save/
+    path timings, save size and version.
+  - Simulation speed (§54): deliberately NOT half-implemented. The scene mixes
+    Phaser tweens + delayedCalls + delta accumulation; a partial scale would
+    desync chef cook clocks from movement tweens. Deferred until the scene
+    consumes the shared RestaurantSimulation clocks (M3 parity extraction).
+  - Pacing targets (§50/§85) can only be validated by live playtests;
+    the headless sim uses representative but not scene-identical timings —
+    recorded in BALANCE.md rather than asserted from the sim.
 
 ## Next
 

@@ -48,6 +48,15 @@ http://127.0.0.1:5173
 - Use **Starter Grant** if your money drops below the amount needed to recover.
 - Press `S` or click **Save** to save locally.
 - Press `Esc` to clear the current selection.
+- Press `M` to mute/unmute sound (persisted per device).
+- Press `F2` to toggle the developer overlay (FPS, rates, queue pressure, staff tasks, save info).
+
+## Tests
+
+```bash
+pnpm test          # vitest: gameplay-rule tests run headless without Phaser
+pnpm run typecheck # tsc
+```
 
 ## Project Structure
 

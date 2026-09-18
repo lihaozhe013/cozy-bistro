@@ -93,6 +93,7 @@ import { FurniturePlacementSystem } from "../systems/FurniturePlacementSystem";
 import { hydrateRatingHistoryFromSave, maxRatingHistory, ReputationSystem } from "../systems/ReputationSystem";
 import { RestaurantGridSystem } from "../systems/RestaurantGridSystem";
 import { SaveSystem } from "../systems/SaveSystem";
+import { CURRENT_SAVE_VERSION } from "../persistence/SaveGame";
 import { defaultPayrollPerStaffPerMinute, StaffSystem, type StaffRole } from "../systems/StaffSystem";
 import { UpgradeSystem } from "../simulation/progression/UpgradeSystem";
 import { SceneClock } from "../simulation/GameClock";
@@ -275,6 +276,7 @@ interface MealTicket {
   recipe: RecipeDefinition;
   state: "ordering" | "queued" | "cooking" | "ready" | "serving" | "delivered";
   readyAt: number;
+  createdAt: number;
   preferredWaiterId?: string;
   serviceKind?: "order" | "food";
   serviceStartedAt?: number;
@@ -536,6 +538,7 @@ export class GameScene extends Phaser.Scene {
   private expansionConfirmModal: Phaser.GameObjects.Container | null = null;
   private recipeUpgradeModal: Phaser.GameObjects.Container | null = null;
   private debugText!: Phaser.GameObjects.Text;
+  private debugOverlayVisible = false;
   private hireChefButton!: Phaser.GameObjects.Text;
   private hireWaiterButton!: Phaser.GameObjects.Text;
   private hireErrandButton!: Phaser.GameObjects.Text;
@@ -777,6 +780,10 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard?.on("keydown-R", () => this.rotateSelection());
     this.input.keyboard?.on("keydown-S", () => this.saveGame());
+    this.input.keyboard?.on("keydown-F2", () => {
+      this.debugOverlayVisible = !this.debugOverlayVisible;
+      this.debugText?.setVisible(this.debugOverlayVisible);
+    });
 
     const flushBeforePageExit = () => this.flushQuietSave();
     const flushWhenHidden = () => {
@@ -3071,18 +3078,31 @@ export class GameScene extends Phaser.Scene {
     const tweenCount = this.tweens.getTweens().length;
     const eventCount = (this.time as Phaser.Time.Clock & { _active?: unknown[] })._active?.length ?? 0;
     const movingActors = this.actors.filter((actor) => actor.container.getData("motionTween")).length;
+    const revenuePerMinute = this.getRecentRatePerMinute(this.recentRevenue);
+    const guestsPerMinute = this.getRecentRatePerMinute(this.recentGuestEntries);
+    const servedPerMinute = this.getRecentRatePerMinute(this.recentServedGuests);
+    const lostPerMinute = this.getRecentRatePerMinute(this.recentLostGuests);
+    const queued = this.tickets.filter((ticket) => ticket.state === "queued" || ticket.state === "cooking");
+    const readyJobs = this.tickets.filter((ticket) => ticket.state === "ready").length;
+    const kitchenWaitMs =
+      queued.length === 0 ? 0 : queued.reduce((sum, ticket) => sum + (time - ticket.createdAt), 0) / queued.length;
+    const chefTasks = this.actors
+      .filter((actor) => actor.role === "chef")
+      .map((actor) => actor.task)
+      .join(",");
+    const waiterTasks = this.actors
+      .filter((actor) => actor.role === "waiter")
+      .map((actor) => actor.task)
+      .join(",");
+    const upgradeLevels = Object.values(this.upgrades.getLevelsSnapshot()).reduce((sum, level) => sum + level, 0);
     const text = [
-      `FPS ${Math.round(1000 / Math.max(1, delta))}`,
-      `Actors ${this.actors.length}`,
-      `Guests ${this.guests.length}`,
-      `Jobs ${this.tickets.length}`,
-      `Move ${movingActors}`,
-      `Tweens ${tweenCount}`,
-      `Timers ${eventCount}`,
-      `Draw ${this.furnitureRenderRate}/s ${this.lastFurnitureRenderMs.toFixed(1)}ms`,
-      `Save ${this.lastSaveMs.toFixed(1)}ms`,
-      `Path ${this.pathfindingAverageMs.toFixed(2)}ms`,
-    ].join("  ");
+      `FPS ${Math.round(1000 / Math.max(1, delta))}  Guests ${this.guests.length}  Jobs ${this.tickets.length}  Move ${movingActors}  Tweens ${tweenCount}  Timers ${eventCount}`,
+      `$/min ${revenuePerMinute.toFixed(0)}  guests/min ${guestsPerMinute.toFixed(1)}  served/min ${servedPerMinute.toFixed(1)}  lost/min ${lostPerMinute.toFixed(1)}`,
+      `queued ${queued.length}  ready ${readyJobs}  kitchen pressure ${(kitchenWaitMs / 1000).toFixed(0)}s  dirty seats ${this.dirtySeatUids.size}`,
+      `chef [${chefTasks}]  waiter [${waiterTasks}]`,
+      `money $${this.economy.getMoney().toFixed(0)}  upgrades ${upgradeLevels}  day ${this.dayCycle.getDayNumber()}  rep ${this.reputation.getAverageRating().toFixed(2)}`,
+      `Draw ${this.furnitureRenderRate}/s ${this.lastFurnitureRenderMs.toFixed(1)}ms  Save ${this.lastSaveMs.toFixed(1)}ms (${this.saveSystem.getSaveSizeBytes(this.currentSaveSlot)}b)  Path ${this.pathfindingAverageMs.toFixed(2)}ms  save v${CURRENT_SAVE_VERSION}`,
+    ].join("\n");
     this.setTextIfChanged(this.debugText, text);
   }
 
@@ -9775,6 +9795,7 @@ export class GameScene extends Phaser.Scene {
           recipe,
           state: ticket.state,
           readyAt: ticket.state === "ready" ? this.time.now : 0,
+          createdAt: this.time.now,
           preferredWaiterId: ticket.preferredWaiterId,
         });
       });
@@ -9789,6 +9810,7 @@ export class GameScene extends Phaser.Scene {
             recipe,
             state: guest.state === "waitingToOrder" ? ("ordering" as const) : ("queued" as const),
             readyAt: 0,
+            createdAt: this.time.now,
           })),
         );
         return;
@@ -10414,6 +10436,7 @@ export class GameScene extends Phaser.Scene {
         recipe,
         state: "ordering" as const,
         readyAt: 0,
+        createdAt: time,
       })),
     );
     this.tickets

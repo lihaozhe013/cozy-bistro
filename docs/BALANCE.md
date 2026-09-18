@@ -86,7 +86,15 @@ ingredients).
 | Model | capacity = min(demand, chefOutput, waiterOutput) dishes/min; consumes pantry |
 | Offline trash drip | 1 drop roll / 3 min, 5% chance |
 
-## Pacing targets (plan §50, to verify in M8)
+## Measurement notes (M8)
+
+Live instrumentation exists behind **F2** (revenue/min, guests-min,
+kitchen queue pressure, staff task lists, save size/version). Numbers are
+scene-derived, so pacing tuning must come from live playtests; the headless
+simulation validates *rules* (throughput direction, upgrade effects) but its
+timings are representative, not scene-identical.
+
+## Pacing targets (plan §50, to verify in M8 via F2 playtests)
 
 First purchase < 60 s · first upgrade < 2 min · first expansion < 8–15 min ·
 full run 30–60 min. Current expansion #1 at $5,000 is likely too steep for
