@@ -1,207 +1,89 @@
-# AI Development Progress
+# Development Progress
 
-Journal of the autonomous agent executing `master_plan.md`.
+This is a dated implementation journal. It is not a second product
+specification; current direction and constraints live in [`../SPEC.md`](../SPEC.md).
 
 ## Current milestone
 
-Milestones 0-9 complete. Remaining per plan: M10 asset polish (needs human
-art direction) and M11 release hardening; both start with a human playtest.
+The root 2D game has a complete playable baseline from the original M0–M9
+implementation pass. The next work is M10 visual polish and M11 release
+hardening, both starting with human playtesting.
+
+Validation snapshot on 2026-09-18:
+
+- `pnpm run typecheck` passes.
+- `pnpm test` passes: 13 files, 124 tests.
+- `pnpm run build` passes with the existing large-chunk warning.
 
 ## Completed
 
-- **M0 Repository audit** (2026-09-17): inspected both projects, ran install +
-  build, mapped working/partial/dead code. Wrote `docs/CURRENT_STATE.md`.
-  - Key finding: root 2D Phaser game already implements most of the plan's MVP
-    (customer loop, staff automation, expansions, save slots, offline progress)
-    but has **zero tests**, no save versioning, no event bus, and simulation
-    state locked inside a 14k-line `GameScene.ts`.
-  - Scope decision: the plan targets the **root 2D project**; `v2/` (3D/
-    SpacetimeDB multiplayer) is out of scope and untouched (plan §93 keeps
-    Phaser; plan §7/§68 defer multiplayer). Recorded in CURRENT_STATE.md.
-  - `src/data/customers.ts` and `src/data/upgrades.ts` are dead code.
+- **Repository audit:** chose the root Phaser game as the development target;
+  documented `v2/` as a separate 3D/SpacetimeDB track.
+- **Core architecture:** added deterministic clocks and RNG, stable entity IDs,
+  typed events, versioned saves, migration/quarantine, centralized balance,
+  content validation, and headless tests.
+- **Service loop:** added a deterministic customer/order/cooking/staff model
+  with legal customer transitions, patience, oldest-first cooking, waiter task
+  priorities, batching, reservations, and deadlock checks.
+- **Economy and upgrades:** added ten data-driven operational upgrades, live
+  effect wiring, recipe progression, upgrade UI, and persistence.
+- **Expansion and customer content:** added eight validated expansion areas,
+  sequential costs, five luxury tiers, and Regular/Foodie/Family archetypes.
+- **Feedback pass:** added floating text, burst feedback, synthesized SFX,
+  mute/volume persistence, and event-driven subscriptions.
+- **Instrumentation and pacing:** added the F2 metrics overlay, a deterministic
+  pacing model, and balance tuning for the current progression envelope.
+- **Offline progress:** added deterministic, pantry-aware, eight-hour-capped
+  estimates with tests and a welcome-back summary.
+- **Internationalization:** added typed English/Chinese catalogs, Chinese as
+  the default, runtime switching, localized content names, and CJK-safe text
+  handling.
 
-## Completed (continued)
+## In progress
 
-- **M1 Core architecture stabilization** (2026-09-17):
-  - vitest wired up: `pnpm test` / `pnpm run typecheck` scripts; 64 tests in
-    7 files cover economy, cooking/menu/pantry, customer orders (seeded RNG),
-    staff payroll/hiring, day cycle/rent, reputation, placement rules,
-    save round-trip/migration/quarantine, and simulation primitives.
-  - `src/simulation/`: RandomSource+SeededRandom, GameClock
-    (Wall/Manual/Scene), EntityIds, typed EventBus + shared `gameEvents`.
-  - De-Phaser'd CustomerSystem/CookingSystem/ReputationSystem/
-    FurniturePlacementSystem/EconomySystem (clock injectable) so node tests
-    run without a browser; behavior-preserving (same distributions/formulas).
-  - Save format is versioned (`CURRENT_SAVE_VERSION = 1`); `migrateSave`
-    validates + normalizes + drops orphan tickets; corrupt payloads are
-    quarantined to `*-corrupt-<ts>` keys, never deleted; legacy versionless
-    saves and the pre-slot key still load.
-  - `src/data/balance.ts`: 60+ gameplay constants moved out of GameScene
-    verbatim; `src/data/contentValidation.ts` runs at scene create (§79).
-  - Gameplay events emitted from the scene: customer-arrived, order-created/
-    ready/served, customer-paid, money-earned, upgrade-purchased,
-    area-unlocked, staff-hired (9 call sites).
-  - Verified: build green, `tsc` clean, 64/64 tests pass, headless-Chrome
-    smoke boot of production build shows Phaser WebGL boot with no console
-    errors.
-
-- **M2/M3 Service loop + staff automation** (2026-09-17, headless engine):
-  - `src/simulation/RestaurantSimulation.ts`: deterministic engine mirroring
-    the scene's rules — customer FSM with legal-transition guard (§12),
-    patience + safe angry-exit cancellation (§13/§58), order queue with
-    oldest-first chef policy (§15/§19), stations with parallel slots (§17),
-    waiter task priorities deliver > payment > clean (§20), batch carry
-    capacity trips, and a TaskReservationRegistry preventing duplicate claims (§21).
-  - New submodules: `simulation/orders/Order.ts`, `simulation/customer/CustomerLogic.ts`,
-    `simulation/staff/StaffTasks.ts`, `simulation/cooking/CookingStation.ts`.
-  - M2 acceptance proven by tests: 20 sequential customers all complete;
-    no stuck tables (seats drain), no duplicate orders (serve-once audit),
-    no staff deadlock (all idle at rest, revenue == Σ prices).
-  - M3 behaviors proven: two waiters never serve the same order; carry=2
-    batches plates in one trip; chef serves oldest queued first; waiter
-    speed upgrades raise throughput; table-payment routing works.
-  - Test-driven engine fix: delivery plans had a phase bug (pickup leg and
-    table leg off by one — dishes were "served" from the counter). Now
-    modeled as explicit to-counter/to-table phases.
-
-- **M4 Economy & upgrades** (2026-09-17):
-  - `src/data/upgrades.ts` (was dead code) rewritten: 10 data-driven
-    definitions with exponential cost curves (growth 1.55–2.3) covering chef
-    cook speed, waiter move speed, waiter carry capacity, customer flow,
-    guest patience, tip chance/amount, dish satisfaction, dishwasher speed,
-    and marketing glow; `computeUpgradeEffects()` compiles levels to one
-    runtime bundle; `describeUpgradeEffect()` feeds the UI (§35).
-  - `src/simulation/progression/UpgradeSystem.ts`: purchases strictly through
-    EconomySystem, emits `upgrade-purchased`, hydrates defensively.
-  - Scene wiring: cook timers, dishwasher, staff walk speed, spawn interval,
-    patience, satisfaction, and tips all read live effects; purchases persist
-    via `upgradeLevels` (save field + migration + round-trip test).
-  - New "Upgrades" ops button + modal listing Lv, current->next effect, cost.
-  - `RestaurantSimulation` accepts `effects` so upgraded configs are tested
-    headlessly (chef speed, patience, carry through real runs).
-  - Fixed a self-recursion introduced during wiring (caught by headless boot
-    smoke: Maximum call stack exceeded).
-
-- **M5 Expansion** (2026-09-17): the scene's 8-area expansion system is now
-  a pure spec: `src/data/expansions.ts` (areas/cells/signs) +
-  `src/simulation/progression/Expansion.ts` (cost curve, sequential purchase,
-  luxury-tier mapping, overlap audit). Scene delegates; geometry verified
-  disjoint by tests; validation runs at startup.
-- **M6 Customer types** (2026-09-17): `src/data/customers.ts` (was dead code)
-  now defines the 3 planned archetypes (Regular/Foodie/Family) with weights,
-  patience/eating/value multipliers, order-size ranges, and tip bonuses.
-  Wired into BOTH the headless sim (rolls, order composition, patience,
-  eat duration, bill multiplier, tips) and the live scene (guest objects carry
-  `archetypeId`; patience, eating, payment, tip chance scale by archetype;
-  archetype persists through saves incl. migration validation).
-  - Content validation extended: duplicate curves/levels, expansion geometry,
-    archetype sanity.
-  - Tests: weight ordering, family > regular order size, distinct dishes,
-    tier mapping, purchase sequence rejection, non-overlap audit. 95 tests
-    green; production build boots headless without console errors.
-  - Recipes (36+ across 5 tiers), stove/counter station variants, 10
-    upgrades: already satisfied by existing content; M6 checklist complete.
-
-- **M7 Juice pass** (2026-09-17):
-  - `FeedbackSystem` (world + UI layers): reusable floating text (money/rep/
-    level/info tones), scale bounces, and texture-free burst particles; all
-    tween-managed lifetimes.
-  - `AudioSystem`: zero-asset WebAudio synth SFX (coin, upgrade, unlock,
-    ready, click) unlocked on first gesture; M mutes, volume persisted in
-    localStorage (device-level setting kept out of gameplay saves).
-  - Scene subscribes to gameEvents: +$N/tip floats at payers, "Ready!" at
-    stoves, LEVEL/banner floats + bursts on upgrades and area unlocks, staff
-    join float, button click SFX; all subscriptions unsubscribed on scene
-    shutdown so slot reloads cannot double-fire.
-  - Boot smoke: clean Phaser 4 WebGL boot, zero uncaught errors with all
-    handlers live (full visual verification is manual — headless Chrome
-    cannot observe canvas pixels; flagged under Known issues).
-
-- **M8 partial: instrumentation** (2026-09-17):
-  - F2 toggles a multi-line debug overlay (plan §53): FPS, guests, jobs,
-    tweens/timers, revenue/min, guests-min, served/lost-min, kitchen queue
-    length + pressure age (new per-ticket createdAt), dirty seats, live
-    chef/waiter task lists, money, upgrade levels, day, rating, draw/save/
-    path timings, save size and version.
-  - Simulation speed (§54): deliberately NOT half-implemented. The scene mixes
-    Phaser tweens + delayedCalls + delta accumulation; a partial scale would
-    desync chef cook clocks from movement tweens. Deferred until the scene
-    consumes the shared RestaurantSimulation clocks (M3 parity extraction).
-  - Pacing targets (§50/§85) can only be validated by live playtests;
-    the headless sim uses representative but not scene-identical timings —
-    recorded in BALANCE.md rather than asserted from the sim.
-
-- **i18n (2026-09-18, user request)**: full bilingual EN/中文 support,
-  Chinese by default, switchable at runtime (button on the top bar,
-  persisted per-device in `localStorage["cozy-bistro-language"]`, outside
-  gameplay saves like the volume setting).
-  - `src/i18n/`: typed message catalogs. `en.ts` is canonical; `zh.ts`
-    implements `Dictionary = typeof en` so missing/extra keys are compile
-    errors. `t(key, params)` interpolates `{tokens}` with compile-time key
-    checking (`MessageKey` union). No runtime dependency added (i18next
-    skipped deliberately: canvas game has no DOM text, and typed catalogs
-    give stronger guarantees).
-  - Content names (recipes/furniture/upgrades/expansions/customers/
-    ingredients) resolve at render time through `src/i18n/content.ts`,
-    keyed by the English canonical string kept in `src/data` (saves store
-    ids, so no save migration). `hydratePantry` already rebuilt ingredient
-    names from ids, keeping baked saves harmless.
-  - Transaction log entries keep canonical English in saves/CSV;
-    `economy.*` catalog entries exist for a future translated ledger view.
-  - Live switching: `trackLocalizedText` producer-closure registry in
-    `GameScene` re-applies all structural labels on `language-changed`
-    (EventBus event); entries unregister via the Phaser `destroy` event.
-    Per-frame text (`updateStats`, catalog refresh) self-heals.
-  - Actor status bubbles show icon badges parsed from canonical English
-    status text (`tEn`), localized by `localizeBubbleBadge` at display time,
-    so the classifier stays language-stable.
-  - Rendering: all `fontFamily` literals centralized in `src/i18n/fonts.ts`
-    with CJK fallback stacks; word wrap switches to Phaser's character
-    wrap (`setWordWrapWidth(w, true)`) whenever text contains CJK, and
-    action-message truncation measures display units (CJK = 2).
-  - Debug overlay / performance diagnostics intentionally stay English
-    (developer tools).
+- Human visual and audio pass for the complete service loop.
+- Art-direction work for generated atlases while preserving frame contracts.
+- Release hardening around browser lifecycle, performance, deployment, and
+  edge-case save recovery.
 
 ## Next
 
-- M2/M3: extract ticket/customer/staff state machines from `GameScene.ts` into
-  `src/simulation/` incrementally; headless 20-customer acceptance sim.
-- M4: data-driven upgrade definitions + in-game upgrade panel.
-- M6: wire real customer archetypes (Regular/Foodie/Family).
-- M7: floating-text feedback system + audio.
+1. Playtest the first ten minutes and verify the pacing against the F2 metrics.
+2. Fix any P0/P1 issues found in save, customer, staff, or economy behavior.
+3. Improve the most visible repeated art assets and inspect all major UI states
+   in both languages.
+4. Extract scene-coupled logic only when a concrete testability or reliability
+   problem justifies it.
 
-## Important architectural decisions
+## Architectural decisions
 
-1. **Plan executes against root 2D game, not v2** (see CURRENT_STATE.md scope
-   decision). Preserve v2 as-is.
-2. **Incremental extraction over rewrite** (plan §94): pure system classes stay;
-   Phaser-coupled scene logic gets pulled out behind tests, never speculatively.
-3. **Injectable `RandomSource`** replaces direct `Phaser.Math`/`Utils.Array`
-   calls in systems so tests are deterministic (plan §57); default source
-   preserves current distribution.
-4. **Save format**: existing `SaveGameState` keys preserved verbatim; a
-   `version` field is added with v0 (legacy, versionless) → v1 migration.
-   Corrupt saves are backed up (`*-corrupt-<ts>`) instead of deleted (plan §58).
-5. Tests run on `vitest` (node env) importing `src/systems` + `src/simulation`
-   directly — no Phaser boot (plan §56).
-6. **i18n without libraries** (2026-09-18): custom typed catalogs instead of
-   i18next; language preference is device-level state (like sound volume), not
-   part of gameplay saves; content keeps English canonical names in `src/data`
-   with render-time localization maps, avoiding save-version churn.
+1. The root 2D game is the canonical track for this specification. `v2/` is
+   independent and is not a source of requirements.
+2. Existing working behavior is preserved through incremental extraction, not a
+   speculative rewrite.
+3. Gameplay rules are tested without booting Phaser whenever practical.
+4. Save data keeps stable field meanings, adds explicit schema versioning, and
+   quarantines corrupt payloads instead of deleting them.
+5. Device preferences such as language and audio volume stay outside gameplay
+   saves.
+6. English is the canonical localization catalog shape; Chinese is the default
+   player language.
 
 ## Known issues
 
-- Headless smoke checks only page boot/console; floating-text visuals and
-  SFX need a human eyeball/ear pass at `pnpm dev` (agent cannot verify pixels).
-
-- `GameScene.ts` size violates plan §76; extraction is multi-session work.
-- Phaser config runs at 30 FPS (`forceSetTimeOut`); evaluate 60 FPS later
-  (performance pass, plan §59).
-- Duplicate tuning paths: `AdminSettings` overrides vs hardcoded defaults.
-  `balance.ts` will become single source; admin settings stay as overrides.
+- `src/scenes/GameScene.ts` is still approximately 14,756 lines. New major
+  responsibilities should be evaluated for extraction first.
+- The root configuration currently targets 30 FPS; a move toward 60 FPS needs
+  measurement because movement, timers, and tweens are not yet one clock.
+- Headless checks cannot validate canvas pixels, visual hierarchy, or audio
+  quality; those require a browser playtest.
+- Admin overrides and central balance defaults still provide two tuning paths;
+  future tuning should keep the distinction explicit.
+- The production JavaScript bundle is large enough to trigger Vite's warning.
 
 ## Balance notes
 
-- Starter money 520, hire costs 80/70/65, expansion base 5000 × 2^n,
-  recipe upgrade cost level² ingredients/ingredient (pre-existing values;
-  will move to `balance.ts` unchanged, then tune in M8).
+Current starter money is `$520`; the first expansion defaults to `$900` with a
+`1.5x` cost multiplier. The full table is in [`BALANCE.md`](BALANCE.md), and
+the implementation remains authoritative in `src/data/balance.ts` and related
+data registries.

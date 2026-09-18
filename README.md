@@ -1,104 +1,97 @@
-# Cozy Bistro Prototype
+# Cozy Bistro
 
-A cozy 2D restaurant management prototype for two-player/couple-style play. The project is inspired by the broad feeling of old social restaurant games, but uses original names, placeholder visuals, data, and mechanics.
+Cozy Bistro is an original cozy 2D restaurant-management and light idle-tycoon
+game. The player arranges a small bistro, hires staff, serves autonomous
+customers, and grows the restaurant through visible upgrades and expansions.
 
-Working names considered: **Couple Cafe**, **Tiny Table**, and **Cozy Bistro**. The prototype currently uses **Cozy Bistro** in-game.
+The root `src/` game is the canonical development track described by
+[`SPEC.md`](SPEC.md). The separate `v2/` directory contains an older 3D /
+SpacetimeDB track and is not required for root-game development.
 
-## Current MVP
-
-This prototype now implements Stage 1, a testable slice of Stage 2, and an early visual operations loop:
-
-- Vite + TypeScript + Phaser 3 web game setup
-- Top-down restaurant building with a visible facade, front door, dining room, and kitchen zone
-- Mouse-based furniture placement
-- Furniture movement and removal modes
-- Furniture costs money
-- Decoration score and attractiveness update as furniture changes
-- Hireable chef and waiter staff
-- Customers visually enter through the door, sit, order, eat, pay, and leave
-- Staff visually cook, serve, collect payments, and clean tables
-- Menu, recipe, order queue, and pantry panels
-- Basic localStorage save for money, day, reputation, unlocked recipes, and furniture placement
-- Data-driven furniture and recipe definitions
-- System classes ready for cooking, customers, economy, reputation, day cycle, and saves
-
-## Run Locally
+## Run the root game
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Open the local Vite URL printed in the terminal, usually:
+Open the Vite URL printed in the terminal, usually
+`http://127.0.0.1:5173`.
 
-```text
-http://127.0.0.1:5173
+To run the separate 3D track instead:
+
+```bash
+pnpm dev:v2
 ```
+
+## Verification
+
+```bash
+pnpm run typecheck
+pnpm test
+pnpm run build
+```
+
+`pnpm run build` builds the root 2D game. The current production build has a
+non-blocking large-chunk warning.
 
 ## Controls
 
-- Click a build menu item to select furniture.
-- Click the restaurant grid to place it.
-- Use **Move** mode to select placed furniture, then click a new valid grid cell.
-- Use **Remove** mode to sell furniture back for a partial refund.
-- Hire a chef and waiter from **Restaurant Ops** to start the automated service loop.
-- Buy ingredients when the pantry runs low.
-- Use **Cook** mode to invite a test guest immediately.
-- Use **New Game** to reset a broken save and restart with a basic crew, pantry, and starter layout.
-- Use **Starter Grant** if your money drops below the amount needed to recover.
-- Press `S` or click **Save** to save locally.
-- Press `Esc` to clear the current selection.
-- Press `M` to mute/unmute sound (persisted per device).
-- Press `F2` to toggle the developer overlay (FPS, rates, queue pressure, staff tasks, save info).
+- Click a build item, then click a valid grid cell to place furniture.
+- Use **Move** to reposition placed furniture and **Remove** to sell it for a
+  partial refund.
+- Hire a chef and waiter from **Restaurant Ops** to start service.
+- Buy ingredients when the pantry is low; **Cook** invites a test guest.
+- **S** saves, **Esc** clears the current selection, and **M** toggles sound.
+- **F2** toggles the developer metrics overlay.
+- Use **English / Chinese** in the title bar to change the device language.
+- **New Game** resets a broken save; **Starter Grant** provides a recovery
+  balance when available.
 
-## Language
+## Current baseline
 
-The game defaults to Chinese and includes full English text. Click **English /
-中文** in the top-right of the title bar to switch at any time; the choice is
-saved per device (like the volume setting), separate from gameplay saves. All
-menus, buttons, panels, modals, toasts, furniture/recipe/upgrade names, and
-status badges are localized. Developer diagnostics stay English.
+The root game includes furniture placement, cooking, customer service, staff
+automation, recipe and operational upgrades, eight expansion levels, three
+customer archetypes, reputation, local save slots, migration and corruption
+recovery, deterministic offline progress, bilingual UI, visual feedback, and
+headless gameplay tests.
 
-## Tests
+The latest validation snapshot is recorded in
+[`docs/AI_PROGRESS.md`](docs/AI_PROGRESS.md). Exact product behavior and
+constraints live in [`SPEC.md`](SPEC.md).
 
-```bash
-pnpm test          # vitest: gameplay-rule tests run headless without Phaser
-pnpm run typecheck # tsc
-```
-
-## Project Structure
+## Project map
 
 ```text
 src/
-  main.ts
-  scenes/
-    GameScene.ts
-  systems/
-    RestaurantGridSystem.ts
-    FurniturePlacementSystem.ts
-    CookingSystem.ts
-    CustomerSystem.ts
-    EconomySystem.ts
-    ReputationSystem.ts
-    DayCycleSystem.ts
-    SaveSystem.ts
-  data/
-    furniture.ts
-    recipes.ts
-    customers.ts
-    upgrades.ts
-  components/
-    types.ts
-  assets/
+  main.ts                 Phaser bootstrap
+  scenes/GameScene.ts     live scene orchestration and rendering
+  simulation/             deterministic rules and headless service model
+  systems/                gameplay services, saves, feedback, and audio
+  data/                   content and tunable balance
+  persistence/            save schema and migrations
+  i18n/                   English and Chinese catalogs
+  tests/                  headless gameplay tests
+scripts/generate_atlases.py
+  procedural and input-driven atlas generation
 docs/
-  game-design.md
-  roadmap.md
+  active documentation and historical archive
+v2/
+  separate 3D/SpacetimeDB track
 ```
 
-## Design Boundary
+## Documentation
 
-No copyrighted assets, names, UI, characters, or exact mechanics from other restaurant games are included. All current visuals are simple placeholder geometry generated in Phaser.
+- [`SPEC.md`](SPEC.md) — canonical product and engineering specification.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — implementation boundaries.
+- [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) — experience and design pillars.
+- [`docs/BALANCE.md`](docs/BALANCE.md) — current values and tuning notes.
+- [`docs/ASSET_PIPELINE.md`](docs/ASSET_PIPELINE.md) — visual asset workflow.
+- [`docs/README.md`](docs/README.md) — complete documentation map.
 
-## Next Stages
+## Originality boundary
 
-See [docs/roadmap.md](docs/roadmap.md) for the planned build order.
+The project uses original names, data, visuals, and mechanics. The game may
+draw on broad restaurant-management genre conventions but does not include
+copyrighted assets, names, UI, characters, or exact mechanics from another
+game.

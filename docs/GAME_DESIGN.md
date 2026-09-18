@@ -1,51 +1,54 @@
 # Game Design
 
-Companion to `game-design.md` (original concept notes). This file tracks the
-design **as implemented** while executing master_plan.md.
+This is the qualitative companion to [`../SPEC.md`](../SPEC.md). It explains
+what the game should feel like; code and data remain authoritative for exact
+rules and values.
 
-## Fantasy & loop
+## Player fantasy
 
-Tiny restaurant → crowded automated bistro. Core visible loop (implemented):
+The player starts with a tiny, imperfect bistro and gradually turns it into a
+busy, attractive, mostly self-running restaurant. The reward is watching a
+layout and a team solve problems that were visible a few minutes earlier.
 
-```text
-pedestrian street → door → seat → expectation → order 1-4 dishes
-→ kitchen queue (stove slots) → waiter pickup → serve → eat (anim)
-→ bill → pay at counter → leave → (waiter cleans seat)
-player: earns $, upgrades recipes/menu, buys furniture & expansions,
-hires/fires chef/waiter/errand, auto-shop keeps pantry full
-```
+## Experience pillars
 
-## Pillars (current state)
+- **Cozy, not frantic:** waiting creates gentle pressure, not punishment.
+- **Alive at a glance:** customers, staff, cooking, dishes, money, and locked
+  expansions should be visible in the room.
+- **Small decisions with clear outcomes:** place a table, hire a role, improve a
+  bottleneck, or open a new area.
+- **Progression with texture:** new furniture and recipes should change the
+  restaurant's look and operation, not only increase a number.
+- **Idle-friendly:** the game should make progress while unattended without
+  pretending the offline estimate is a full replay.
 
-- **Autonomy**: staff & customers fully AI-driven; player = manager via UI.
-- **Visible progression**: 8 expansion levels gate luxury tiers 1–5 across
-  furniture and recipes; expansion signs show lock + price in-world.
-- **Gentle pressure**: patience affects ratings/tips, not instant losses;
-  angry exits are tracked but rare by design.
-- **Idle-friendly**: offline progress converts away-time into served guests
-  and money (capacity model, capped); autosave + 3 manual slots.
-- **Data-driven**: furniture, recipes, customer archetypes, upgrades, and all
-  tuning live under `src/data/`.
+## Pacing intent
 
-## Controls
+The first minutes should contain a functioning restaurant and early earnings.
+The player should see a meaningful first upgrade soon after, encounter a clear
+service bottleneck, and understand why the next expansion is desirable within
+the first session. Exact pacing is tuned through `src/data/balance.ts`, the
+headless pacing model, and live F2 metrics.
 
-Mouse/touch: build/move/remove/seat/cook modes, click-to-place, Esc cancels,
-S saves, drag + wheel pan/zoom the isometric room. Keyboard is optional.
+## Feedback language
 
-## Systems overview
+Use a consistent visual vocabulary:
 
-See docs/ARCHITECTURE.md. Scene scheduler ticks: service assignment 200ms,
-kitchen assignment 200ms, stall recovery 1s, auto-shop 0.5s, chef sync 1s,
-personal-space steering 90ms, quiet-save debounce 2.2s.
+- money and tips: warm green / coin motion;
+- completed food: ready signal near the kitchen;
+- upgrades: level-up emphasis;
+- expansion: persistent sign while locked, burst and message when purchased;
+- problems: readable status bubbles and metrics rather than opaque errors.
 
-## Feedback vocabulary (event bus, plan §33)
+## Player interaction
 
-customer-arrived · customer-paid · order-created/ready/served ·
-money-earned · upgrade-purchased · area-unlocked · staff-hired.
-Rendering juice (floating text, particles, SFX) subscribes to these in M7.
+Mouse and touch are primary. Keyboard shortcuts (`S`, `M`, `F2`, and `Esc`) are
+convenience tools. The player manages the room through panels and direct
+placement; they do not control an avatar or manually walk staff.
 
-## Non-goals (unchanged from plan §7)
+## Deliberate boundaries
 
-No multiplayer, monetization, combat, crafting trees, or open-world movement.
-`v2/` Three.js experiment is a separate track; this design document only
-governs the 2D game.
+The root game does not currently pursue multiplayer, combat, monetization,
+open-world movement, complex crafting, story quests, or a large farm system.
+Those ideas may be revisited only as explicit product decisions after the core
+restaurant is polished.
