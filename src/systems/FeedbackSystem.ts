@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { FONTS } from "../i18n/fonts";
 
 /**
  * Reusable visual feedback (master_plan §31/§32): floating text, scale
@@ -29,7 +30,7 @@ export class FeedbackSystem {
     const style = toneStyles[tone];
     const label = this.scene.add
       .text(x, y, text, {
-        fontFamily: "Arial",
+        fontFamily: FONTS.display,
         fontSize: `${style.size}px`,
         fontStyle: "bold",
         color: style.color,

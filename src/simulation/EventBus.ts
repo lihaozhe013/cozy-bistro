@@ -20,6 +20,7 @@ export type GameEventMap = {
   "day-rolled-over": { dayNumber: number };
   "money-earned": { amount: number; source: string; x?: number; y?: number };
   "recipe-unlocked": { recipeId: string };
+  "language-changed": { locale: "en" | "zh" };
 };
 
 export type GameEventName = keyof GameEventMap;

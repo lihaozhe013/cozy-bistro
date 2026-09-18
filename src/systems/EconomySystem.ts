@@ -1,4 +1,5 @@
 import type { SaveGameState, TransactionLogEntry } from "../components/types";
+import { tEn } from "../i18n";
 import { WallClock, type GameClock } from "../simulation/GameClock";
 
 const maxTransactionLogEntries = 5000;
@@ -71,7 +72,7 @@ export class EconomySystem {
   forceSpendMoney(amount: number, reason: ForceSpendReason = "rent"): void {
     this.charge(amount);
     this.dailyExpensesTotal += amount;
-    this.recordTransaction(reason === "rent" ? "Rent" : "Forced charge", -amount);
+    this.recordTransaction(reason === "rent" ? tEn("economy.rent") : tEn("economy.forcedCharge"), -amount);
   }
 
   getDailyRevenue(): number {
@@ -126,21 +127,21 @@ export class EconomySystem {
 
 function getEarnTransactionLabel(reason: EarnReason): string {
   const labels: Record<EarnReason, string> = {
-    payment: "Customer payment",
-    refund: "Refund",
-    grant: "Grant/reward",
-    offline: "Offline earnings",
+    payment: tEn("economy.customerPayment"),
+    refund: tEn("economy.refund"),
+    grant: tEn("economy.grantReward"),
+    offline: tEn("economy.offlineEarnings"),
   };
   return labels[reason];
 }
 
 function getSpendTransactionLabel(reason: SpendReason): string {
   const labels: Record<SpendReason, string> = {
-    ingredients: "Ingredient purchase",
-    staff: "Staff cost",
-    unlock: "Unlock purchase",
-    decor: "Furniture/decor purchase",
-    rent: "Rent",
+    ingredients: tEn("economy.ingredientPurchase"),
+    staff: tEn("economy.staffCost"),
+    unlock: tEn("economy.unlockPurchase"),
+    decor: tEn("economy.decorPurchase"),
+    rent: tEn("economy.rent"),
   };
   return labels[reason];
 }
@@ -149,7 +150,7 @@ function hydrateTransactionLogEntries(entries?: TransactionLogEntry[]): Transact
   return (entries ?? [])
     .map((entry) => ({
       at: Number(entry.at) || Date.now(),
-      transaction: String(entry.transaction || "Transaction"),
+      transaction: String(entry.transaction || tEn("economy.transactionFallback")),
       amount: Math.round(Number(entry.amount) || 0),
       balance: Math.round(Number(entry.balance) || 0),
     }))

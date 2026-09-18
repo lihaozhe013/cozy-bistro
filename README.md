@@ -51,6 +51,14 @@ http://127.0.0.1:5173
 - Press `M` to mute/unmute sound (persisted per device).
 - Press `F2` to toggle the developer overlay (FPS, rates, queue pressure, staff tasks, save info).
 
+## Language
+
+The game defaults to Chinese and includes full English text. Click **English /
+中文** in the top-right of the title bar to switch at any time; the choice is
+saved per device (like the volume setting), separate from gameplay saves. All
+menus, buttons, panels, modals, toasts, furniture/recipe/upgrade names, and
+status badges are localized. Developer diagnostics stay English.
+
 ## Tests
 
 ```bash

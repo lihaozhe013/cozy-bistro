@@ -1,5 +1,8 @@
 import type { FurnitureDefinition, GridPosition, PlacedFurniture } from "../components/types";
 import { getFurnitureDefinition } from "../data/furniture";
+import { t } from "../i18n";
+import { formatMoney } from "../i18n/format";
+import { contentName } from "../i18n/content";
 import { createFurnitureUid } from "../simulation/EntityIds";
 import { EconomySystem } from "./EconomySystem";
 import type { RestaurantGridSystem } from "./RestaurantGridSystem";
@@ -59,13 +62,13 @@ export class FurniturePlacementSystem {
   selectPlacedFurniture(uid: string): { ok: boolean; message: string } {
     const placed = this.furniture.find((item) => item.uid === uid);
     if (!placed) {
-      return { ok: false, message: "Selection no longer exists" };
+      return { ok: false, message: t("place.systemSelectionGone") };
     }
 
     this.selectedFurnitureId = null;
     this.selectedPlacedUid = placed.uid;
     this.selectedRotation = placed.rotation ?? 0;
-    return { ok: true, message: `${getFurnitureDefinition(placed.furnitureId).name} selected` };
+    return { ok: true, message: t("place.systemSelected", { name: contentName(getFurnitureDefinition(placed.furnitureId).name) }) };
   }
 
   rotateSelectedCatalog(): number {
@@ -75,17 +78,17 @@ export class FurniturePlacementSystem {
 
   rotateSelectedPlaced(): { ok: boolean; message: string } {
     if (!this.selectedPlacedUid) {
-      return { ok: false, message: "Select placed furniture first" };
+      return { ok: false, message: t("place.systemSelectPlaced") };
     }
 
     const placed = this.getSelectedPlacedFurniture();
     if (!placed) {
-      return { ok: false, message: "Selection no longer exists" };
+      return { ok: false, message: t("place.systemSelectionGone") };
     }
 
     const definition = getFurnitureDefinition(placed.furnitureId);
     this.selectedRotation = (this.selectedRotation + 90) % 360;
-    return { ok: true, message: `${definition.name} rotation preview: ${this.selectedRotation} degrees` };
+    return { ok: true, message: t("place.systemRotationPreview", { name: contentName(definition.name), degrees: this.selectedRotation }) };
   }
 
   getFurniture(): PlacedFurniture[] {
@@ -102,10 +105,10 @@ export class FurniturePlacementSystem {
       if (existing) {
         this.selectedPlacedUid = existing.uid;
         this.selectedRotation = existing.rotation ?? 0;
-        return { ok: true, message: `${getFurnitureDefinition(existing.furnitureId).name} selected` };
+        return { ok: true, message: t("place.systemSelected", { name: contentName(getFurnitureDefinition(existing.furnitureId).name) }) };
       }
 
-      return { ok: false, message: "Choose furniture from the build menu" };
+      return { ok: false, message: t("place.systemChooseFromMenu") };
     }
 
     const definition = getFurnitureDefinition(this.selectedFurnitureId);
@@ -113,7 +116,7 @@ export class FurniturePlacementSystem {
       ignoreFlooring: definition.category !== "flooring",
       rotation: this.selectedRotation,
     })) {
-      return { ok: false, message: "That spot is blocked" };
+      return { ok: false, message: t("place.systemSpotBlocked") };
     }
 
     const requestedCells = this.grid.getOccupiedCells(definition, position, this.selectedRotation);
@@ -131,7 +134,7 @@ export class FurniturePlacementSystem {
         }),
       );
       if (matchingFloorAlreadyPlaced) {
-        return { ok: true, message: `${definition.name} already there` };
+        return { ok: true, message: t("place.systemAlreadyThere", { name: contentName(definition.name) }) };
       }
     }
 
@@ -153,14 +156,14 @@ export class FurniturePlacementSystem {
         }),
       );
       if (matchingWallFinishAlreadyPlaced) {
-        return { ok: true, message: `${definition.name} already there` };
+        return { ok: true, message: t("place.systemAlreadyThere", { name: contentName(definition.name) }) };
       }
     }
 
     const cost = this.costResolver(definition);
     if (!this.economy.spend(cost)) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      return { ok: false, message: `Not enough money: need $${shortfall} more for ${definition.name}` };
+      return { ok: false, message: t("place.notEnoughMoney", { money: formatMoney(shortfall), name: contentName(definition.name) }) };
     }
 
     const furniture = definition.category === "flooring"
@@ -198,17 +201,17 @@ export class FurniturePlacementSystem {
       },
     ];
 
-    return { ok: true, message: `${definition.name} placed` };
+    return { ok: true, message: t("place.systemPlaced", { name: contentName(definition.name) }) };
   }
 
   tryMoveSelected(position: GridPosition): { ok: boolean; message: string } {
     if (!this.selectedPlacedUid) {
-      return { ok: false, message: "Select placed furniture first" };
+      return { ok: false, message: t("place.systemSelectPlaced") };
     }
 
     const placed = this.furniture.find((item) => item.uid === this.selectedPlacedUid);
     if (!placed) {
-      return { ok: false, message: "Selection no longer exists" };
+      return { ok: false, message: t("place.systemSelectionGone") };
     }
 
     const definition = getFurnitureDefinition(placed.furnitureId);
@@ -216,7 +219,7 @@ export class FurniturePlacementSystem {
       ignoreFlooring: definition.category !== "flooring",
       rotation: this.selectedRotation,
     })) {
-      return { ok: false, message: "Cannot move there" };
+      return { ok: false, message: t("place.systemCannotMove") };
     }
 
     const requestedCells = this.grid.getOccupiedCells(definition, position, this.selectedRotation);
@@ -243,13 +246,13 @@ export class FurniturePlacementSystem {
       item.uid === placed.uid ? { ...item, position, rotation: this.selectedRotation } : item,
     );
 
-    return { ok: true, message: `${definition.name} moved` };
+    return { ok: true, message: t("place.systemMoved", { name: contentName(definition.name) }) };
   }
 
   removeAt(position: GridPosition): { ok: boolean; message: string } {
     const existing = this.getFurnitureAt(position, { includeFlooring: false });
     if (!existing) {
-      return { ok: false, message: "Nothing to sell" };
+      return { ok: false, message: t("place.systemNothingToSell") };
     }
 
     const definition = getFurnitureDefinition(existing.furnitureId);
@@ -258,7 +261,7 @@ export class FurniturePlacementSystem {
     this.economy.earn(saleValue);
     this.selectedPlacedUid = null;
 
-    return { ok: true, message: `${definition.name} sold for $${saleValue}` };
+    return { ok: true, message: t("place.systemSold", { name: contentName(definition.name), money: formatMoney(saleValue) }) };
   }
 
   getFurnitureAt(position: GridPosition, options: { includeFlooring?: boolean } = {}): PlacedFurniture | null {

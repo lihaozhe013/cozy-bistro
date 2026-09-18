@@ -131,6 +131,37 @@ art direction) and M11 release hardening; both start with a human playtest.
     the headless sim uses representative but not scene-identical timings —
     recorded in BALANCE.md rather than asserted from the sim.
 
+- **i18n (2026-09-18, user request)**: full bilingual EN/中文 support,
+  Chinese by default, switchable at runtime (button on the top bar,
+  persisted per-device in `localStorage["cozy-bistro-language"]`, outside
+  gameplay saves like the volume setting).
+  - `src/i18n/`: typed message catalogs. `en.ts` is canonical; `zh.ts`
+    implements `Dictionary = typeof en` so missing/extra keys are compile
+    errors. `t(key, params)` interpolates `{tokens}` with compile-time key
+    checking (`MessageKey` union). No runtime dependency added (i18next
+    skipped deliberately: canvas game has no DOM text, and typed catalogs
+    give stronger guarantees).
+  - Content names (recipes/furniture/upgrades/expansions/customers/
+    ingredients) resolve at render time through `src/i18n/content.ts`,
+    keyed by the English canonical string kept in `src/data` (saves store
+    ids, so no save migration). `hydratePantry` already rebuilt ingredient
+    names from ids, keeping baked saves harmless.
+  - Transaction log entries keep canonical English in saves/CSV;
+    `economy.*` catalog entries exist for a future translated ledger view.
+  - Live switching: `trackLocalizedText` producer-closure registry in
+    `GameScene` re-applies all structural labels on `language-changed`
+    (EventBus event); entries unregister via the Phaser `destroy` event.
+    Per-frame text (`updateStats`, catalog refresh) self-heals.
+  - Actor status bubbles show icon badges parsed from canonical English
+    status text (`tEn`), localized by `localizeBubbleBadge` at display time,
+    so the classifier stays language-stable.
+  - Rendering: all `fontFamily` literals centralized in `src/i18n/fonts.ts`
+    with CJK fallback stacks; word wrap switches to Phaser's character
+    wrap (`setWordWrapWidth(w, true)`) whenever text contains CJK, and
+    action-message truncation measures display units (CJK = 2).
+  - Debug overlay / performance diagnostics intentionally stay English
+    (developer tools).
+
 ## Next
 
 - M2/M3: extract ticket/customer/staff state machines from `GameScene.ts` into
@@ -153,6 +184,10 @@ art direction) and M11 release hardening; both start with a human playtest.
    Corrupt saves are backed up (`*-corrupt-<ts>`) instead of deleted (plan §58).
 5. Tests run on `vitest` (node env) importing `src/systems` + `src/simulation`
    directly — no Phaser boot (plan §56).
+6. **i18n without libraries** (2026-09-18): custom typed catalogs instead of
+   i18next; language preference is device-level state (like sound volume), not
+   part of gameplay saves; content keeps English canonical names in `src/data`
+   with render-time localization maps, avoiding save-version churn.
 
 ## Known issues
 

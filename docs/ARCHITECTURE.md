@@ -77,6 +77,38 @@ hydrate exactly like before.
 - `pnpm test` runs vitest (node env) over `src/tests/*.test.ts`; no Phaser is
   imported by any tested module (Phaser cannot load without a browser).
 
+## Internationalization (i18n)
+
+All user-facing strings live in `src/i18n/`; nothing is rendered from a hard-coded
+literal. Chinese (`zh`) is the default; `en` is the canonical catalog.
+
+```text
+locales/en.ts   canonical message catalog; its inferred shape == Dictionary
+locales/zh.ts   const zh: Dictionary — TS errors on any missing/extra key
+index.ts        t(key, params) + {token} interpolation, get/set/toggleLanguage,
+                localStorage["cozy-bistro-language"] (device-level, not a save),
+                emits "language-changed" on the EventBus, translateLegacyText
+content.ts      per-id name/description maps for recipes/furniture/upgrades/
+                expansions/customers/ingredients (English string is the key)
+fonts.ts        CJK-safe font stacks (Phaser resolves per-glyph fallback)
+format.ts       formatMoney / formatDateTime / shouldBreakByCharacter
+```
+
+- Text is localized at **render time**: systems keep English canonical
+  `name`/`description` in `src/data` and store ids in saves, so switching
+  language never dirties or migrates a save.
+- `GameScene` tracks structural labels via a producer-closure registry
+  (`trackLocalizedText`); on `language-changed` every producer re-runs and the
+  entry self-unregisters on the Phaser `destroy` event. Per-frame text
+  (`updateStats`, catalog/label refreshers) re-localizes automatically.
+- Actor status bubbles render short icon badges parsed from canonical English
+  status text (`tEn`), localized to the active language by
+  `localizeBubbleBadge`, so the English classifier stays stable across locales.
+- Word wrap flips to Phaser character wrap (`setWordWrapWidth(w, true)`)
+  whenever text contains CJK; action-message truncation counts CJK as 2 units.
+- Debug overlay and the admin performance diagnostics stay English (developer
+  tools, not player UI).
+
 ## Known deviations from the master plan's suggested layout
 
 - No `app/`, `entities/`, `ui/` folders yet — existing `scenes/systems/data`

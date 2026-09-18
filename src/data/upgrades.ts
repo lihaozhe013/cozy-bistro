@@ -7,6 +7,8 @@
  * are a separate, pre-existing system (CookingSystem recipe levels).
  */
 
+import { t } from "../i18n";
+
 export type UpgradeTarget =
   | "chef-cook-speed"
   | "waiter-move-speed"
@@ -203,24 +205,24 @@ export function describeUpgradeEffect(id: UpgradeTarget, level: number): string 
   const next = level + 1;
   switch (id) {
     case "chef-cook-speed":
-      return `cook speed x${(1 + 0.08 * level).toFixed(2)} -> x${(1 + 0.08 * next).toFixed(2)}`;
+      return t("upgradeEffects.chefCookSpeed", { from: (1 + 0.08 * level).toFixed(2), to: (1 + 0.08 * next).toFixed(2) });
     case "waiter-move-speed":
-      return `walk speed x${(1 + 0.08 * level).toFixed(2)} -> x${(1 + 0.08 * next).toFixed(2)}`;
+      return t("upgradeEffects.waiterMoveSpeed", { from: (1 + 0.08 * level).toFixed(2), to: (1 + 0.08 * next).toFixed(2) });
     case "waiter-carry-capacity":
-      return `plates per trip ${1 + level} -> ${1 + next}`;
+      return t("upgradeEffects.waiterCarryCapacity", { from: 1 + level, to: 1 + next });
     case "customer-flow":
-      return `guest flow x${(1 + 0.1 * level).toFixed(1)} -> x${(1 + 0.1 * next).toFixed(1)}`;
+      return t("upgradeEffects.customerFlow", { from: (1 + 0.1 * level).toFixed(1), to: (1 + 0.1 * next).toFixed(1) });
     case "guest-patience":
-      return `+${level * 10}s patience -> +${next * 10}s`;
+      return t("upgradeEffects.guestPatience", { from: level * 10, to: next * 10 });
     case "tip-chance":
-      return `${Math.round(level * 4)}% tips -> ${Math.round(next * 4)}%`;
+      return t("upgradeEffects.tipChance", { from: Math.round(level * 4), to: Math.round(next * 4) });
     case "tip-amount":
-      return `+${level * 10}% bill tips -> +${next * 10}%`;
+      return t("upgradeEffects.tipAmount", { from: level * 10, to: next * 10 });
     case "dish-satisfaction":
-      return `+${level} dish satisfaction -> +${next}`;
+      return t("upgradeEffects.dishSatisfaction", { from: level, to: next });
     case "dishwasher-speed":
-      return `wash speed x${(1 + 0.12 * level).toFixed(2)} -> x${(1 + 0.12 * next).toFixed(2)}`;
+      return t("upgradeEffects.dishwasherSpeed", { from: (1 + 0.12 * level).toFixed(2), to: (1 + 0.12 * next).toFixed(2) });
     case "marketing-glow":
-      return `+${(level * 0.1).toFixed(1)} attractiveness -> +${(next * 0.1).toFixed(1)}`;
+      return t("upgradeEffects.marketingGlow", { from: (level * 0.1).toFixed(1), to: (next * 0.1).toFixed(1) });
   }
 }

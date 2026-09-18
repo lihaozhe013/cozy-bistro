@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { setLanguage } from "../i18n";
 import { FurniturePlacementSystem } from "../systems/FurniturePlacementSystem";
 import { RestaurantGridSystem } from "../systems/RestaurantGridSystem";
 import { EconomySystem } from "../systems/EconomySystem";
 import type { FurnitureDefinition, GridPosition, PlacedFurniture } from "../components/types";
+
+// Placement result messages are user-facing display strings; pin the locale
+// so English assertions stay stable regardless of the game default language.
+setLanguage("en");
 
 /**
  * Minimal structural stand-in for RestaurantGridSystem so placement rules can

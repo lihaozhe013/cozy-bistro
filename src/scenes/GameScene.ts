@@ -115,6 +115,10 @@ import { expansionCost, expansionRequiredForTier, luxuryTierForExpansion } from 
 import { gameEvents } from "../simulation/EventBus";
 import { FeedbackSystem } from "../systems/FeedbackSystem";
 import { AudioSystem } from "../systems/AudioSystem";
+import { containsCJK, getLanguage, isChinese, t, tEn, toggleLanguage, translateLegacyText, type MessageKey } from "../i18n";
+import { formatDateTime, formatMoney, shouldBreakByCharacter } from "../i18n/format";
+import { contentDescription, contentName } from "../i18n/content";
+import { FONTS } from "../i18n/fonts";
 
 const furnitureAtlasImage = new URL("../assets/atlases/furniture.png", import.meta.url).href;
 const furnitureAtlasData = new URL("../assets/atlases/furniture.json", import.meta.url).href;
@@ -461,6 +465,8 @@ export class GameScene extends Phaser.Scene {
   private uiFeedback!: FeedbackSystem;
   private audio = new AudioSystem();
   private eventBusUnsubscribers: Array<() => void> = [];
+  private localizedTextEntries: Array<{ apply: () => void }> = [];
+  private lastActionMessage = "";
   private saveSystem!: SaveSystem;
   private staffSystem!: StaffSystem;
   private upgrades!: UpgradeSystem;
@@ -714,7 +720,7 @@ export class GameScene extends Phaser.Scene {
     this.dayCycle.hydrate(save);
     this.economy.hydrate(save);
     if (this.economy.getTransactionLog().length === 0) {
-      this.economy.recordTransaction("Log started from loaded balance", 0);
+      this.economy.recordTransaction(tEn("economy.logStarted"), 0);
     }
     this.applyOfflineProgress(save);
 
@@ -737,7 +743,7 @@ export class GameScene extends Phaser.Scene {
     this.previewSprite = this.add.image(0, 0, "furniture", "round-table-r0").setVisible(false).setAlpha(0.72);
     this.previewHint = this.add
       .text(0, 0, "", {
-        fontFamily: "Arial",
+        fontFamily: FONTS.display,
         fontSize: "12px",
         color: "#fff5dc",
         backgroundColor: "rgba(72, 49, 38, 0.72)",
@@ -766,7 +772,7 @@ export class GameScene extends Phaser.Scene {
     this.restoreStaffActorPositions(save);
     this.restoreActiveGuests(save);
     this.setupFeedbackLayer();
-    this.updateStats(this.offlineSummaryMessage || "Welcome shift ready: a chef, waiter, seats, and pantry are already set up.");
+    this.updateStats(this.offlineSummaryMessage || t("stats.welcomeShift"));
     if (this.offlineSummaryMessage) {
       this.persistQuietly();
     }
@@ -829,7 +835,7 @@ export class GameScene extends Phaser.Scene {
       } catch {
         // private mode: mute still works this session
       }
-      this.updateStats(next > 0 ? "Sound on (M toggles)" : "Sound muted (M toggles)");
+      this.updateStats(next > 0 ? t("stats.soundOn") : t("stats.soundMuted"));
     });
 
     const off = (fn: () => void): void => {
@@ -838,9 +844,9 @@ export class GameScene extends Phaser.Scene {
     off(
       gameEvents.on("customer-paid", ({ amount, tip, x, y }) => {
         if (x !== undefined && y !== undefined) {
-          this.feedback.showFloatingText({ x, y: y - 60, text: `+$${amount}`, tone: "money" });
+          this.feedback.showFloatingText({ x, y: y - 60, text: t("floating.payment", { money: formatMoney(amount) }), tone: "money" });
           if (tip > 0) {
-            this.feedback.showFloatingText({ x: x + 26, y: y - 42, text: `+$${tip} tip`, tone: "rep" });
+            this.feedback.showFloatingText({ x: x + 26, y: y - 42, text: t("floating.tip", { money: formatMoney(tip) }), tone: "rep" });
           }
         }
         this.audio.play("coin");
@@ -849,17 +855,18 @@ export class GameScene extends Phaser.Scene {
     off(
       gameEvents.on("order-ready", ({ x, y }) => {
         if (x !== undefined && y !== undefined) {
-          this.feedback.showFloatingText({ x, y: y - 26, text: "Ready!", tone: "info" });
+          this.feedback.showFloatingText({ x, y: y - 26, text: t("floating.ready"), tone: "info" });
         }
         this.audio.play("ready");
       }),
     );
     off(
       gameEvents.on("upgrade-purchased", ({ upgradeId, level }) => {
+        const definition = upgradeDefinitions.find((item) => item.id === upgradeId);
         this.uiFeedback.showFloatingText({
           x: gameWidth / 2,
           y: gameHeight / 2 - 40,
-          text: `${upgradeId.toUpperCase()} LEVEL ${level}!`,
+          text: t("floating.upgradeLevel", { name: definition ? contentName(definition.name) : upgradeId.toUpperCase(), level }),
           tone: "level",
         });
         this.audio.play("upgrade");
@@ -870,13 +877,18 @@ export class GameScene extends Phaser.Scene {
         this.uiFeedback.showFloatingText({
           x: gameWidth / 2,
           y: gameHeight / 2 - 80,
-          text: `NEW AREA: ${name.toUpperCase()}!`,
+          text: t("floating.newArea", { name: isChinese() ? contentName(name) : name.toUpperCase() }),
           tone: "level",
         });
         this.uiFeedback.showBurst(gameWidth / 2, gameHeight / 2 - 60, 0xffd966, 18, 120);
         this.uiFeedback.showBurst(gameWidth / 2, gameHeight / 2 - 60, 0xfff1b8, 14, 80);
-        this.updateStats(`Unlocked ${name} (expansion ${level})`);
+        this.updateStats(t("stats.unlockedArea", { name: contentName(name), level }));
         this.audio.play("unlock");
+      }),
+    );
+    off(
+      gameEvents.on("language-changed", () => {
+        this.refreshLocalizedText();
       }),
     );
     off(
@@ -884,7 +896,7 @@ export class GameScene extends Phaser.Scene {
         this.uiFeedback.showFloatingText({
           x: gameWidth / 2,
           y: gameHeight / 2 - 10,
-          text: `New ${role} joined!`,
+          text: t("floating.newStaff", { role: this.getStaffRoleLabel(role as StaffRole) }),
           tone: "rep",
         });
       }),
@@ -966,16 +978,16 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(170, 518, 326, 748, 0xf4d79f).setData("background", true);
     this.add.rectangle(1454, 518, 292, 748, 0xf4d79f).setData("background", true);
 
-    this.add.text(682, 24, "COZY BISTRO", {
+    this.createLocalizedText(682, 24, () => t("banner.gameName"), {
       color: "#3b2a21",
-      fontFamily: "Georgia, serif",
+      fontFamily: FONTS.serif,
       fontSize: "38px",
       fontStyle: "bold",
     });
-    this.add.text(690, 72, "a tiny restaurant built for two", {
+    this.createLocalizedText(690, 72, () => t("banner.subtitle"), {
       color: "#5e473a",
       fontSize: "16px",
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
     });
     this.createRatingWidget();
 
@@ -988,21 +1000,26 @@ export class GameScene extends Phaser.Scene {
     this.ratingBox = this.add.container(gameWidth - width - 28, 50).setDepth(uiDepth + 10);
     this.ratingBoxBackground = this.add.graphics();
     this.ratingStarGraphics = this.add.graphics();
-    const label = this.add.text(14, 12, "Rating", {
-      color: "#3b2a21",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "14px",
-      fontStyle: "bold",
-    });
+    const label = this.createLocalizedText(
+      14,
+      12,
+      () => t("banner.rating"),
+      {
+        color: "#3b2a21",
+        fontFamily: FONTS.ui,
+        fontSize: "14px",
+        fontStyle: "bold",
+      },
+    );
     this.ratingValueText = this.add.text(70, 12, "", {
       color: "#3b2a21",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "14px",
       fontStyle: "bold",
     });
     this.ratingVoteText = this.add.text(246, 13, "", {
       color: "#5e473a",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "12px",
     });
 
@@ -1962,22 +1979,22 @@ export class GameScene extends Phaser.Scene {
     background.fillRect(mapViewport.x, mapViewport.y + 454, mapViewport.width, 34);
     this.streetLayer.add(background);
 
-    this.drawOtherRestaurantFacade(470, 214, "Future Bistro", 0x8aa3a0);
-    this.drawOtherRestaurantFacade(880, 214, "Online Cafe", 0xb98a6a);
-    this.drawOtherRestaurantFacade(1095, 556, "Friend's Place", 0x9d8fbd);
+    this.drawOtherRestaurantFacade(470, 214, "street.futureBistro", 0x8aa3a0);
+    this.drawOtherRestaurantFacade(880, 214, "street.onlineCafe", 0xb98a6a);
+    this.drawOtherRestaurantFacade(1095, 556, "street.friendPlace", 0x9d8fbd);
     this.drawPlayerRestaurantFacade();
 
-    const hint = this.add.text(mapViewport.x + mapViewport.width / 2, mapViewport.y + mapViewport.height - 34, "Street view: click your restaurant to go back inside. Future multiplayer restaurants will appear across the street.", {
+    const hint = this.createLocalizedText(mapViewport.x + mapViewport.width / 2, mapViewport.y + mapViewport.height - 34, () => t("street.hint"), {
       color: "#3b2a21",
       backgroundColor: "#fff8e8",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "14px",
       padding: { x: 10, y: 6 },
-    }).setOrigin(0.5);
+    }, mapViewport.width - 40).setOrigin(0.5);
     this.streetLayer.add(hint);
   }
 
-  private drawOtherRestaurantFacade(x: number, y: number, name: string, color: number): void {
+  private drawOtherRestaurantFacade(x: number, y: number, nameKey: MessageKey, color: number): void {
     const facade = this.add.graphics();
     facade.fillStyle(color, 1);
     facade.fillRoundedRect(x, y, 180, 112, 6);
@@ -1988,9 +2005,9 @@ export class GameScene extends Phaser.Scene {
     facade.fillRect(x + 118, y + 24, 44, 38);
     facade.fillStyle(0x4b352c, 1);
     facade.fillRect(x + 74, y + 52, 34, 56);
-    const label = this.add.text(x + 90, y + 126, name, {
+    const label = this.createLocalizedText(x + 90, y + 126, () => t(nameKey), {
       color: "#3b2a21",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "13px",
       fontStyle: "bold",
       backgroundColor: "#fff8e8",
@@ -2018,16 +2035,16 @@ export class GameScene extends Phaser.Scene {
     facade.fillRect(x + 40, y + 28, 220, 22);
     this.streetLayer.add(facade);
 
-    const sign = this.add.text(x + 150, y + 38, "COZY BISTRO", {
+    const sign = this.createLocalizedText(x + 150, y + 38, () => t("banner.gameName"), {
       color: "#fff4dc",
-      fontFamily: "Georgia, serif",
+      fontFamily: FONTS.serif,
       fontSize: "20px",
       fontStyle: "bold",
     }).setOrigin(0.5);
-    const prompt = this.add.text(x + 150, y + 170, "Your restaurant - click to enter", {
+    const prompt = this.createLocalizedText(x + 150, y + 170, () => t("street.yourRestaurant"), {
       color: "#3b2a21",
       backgroundColor: "#fff8e8",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "14px",
       fontStyle: "bold",
       padding: { x: 8, y: 4 },
@@ -2087,8 +2104,8 @@ export class GameScene extends Phaser.Scene {
     this.previewSprite.setVisible(false);
     this.previewHint.setVisible(false);
     this.hideTooltip();
-    this.setTextIfChanged(this.streetButton, inside ? "Go to street" : "Go inside");
-    this.updateStats(inside ? "Back inside your restaurant" : "Street view");
+    this.setTextIfChanged(this.streetButton, inside ? t("street.goToStreet") : t("street.goInside"));
+    this.updateStats(inside ? t("street.viewInside") : t("street.viewStreet"));
   }
 
   private getVisibleExpansionBounds(): { minX: number; minY: number; maxX: number; maxY: number } {
@@ -2553,8 +2570,8 @@ export class GameScene extends Phaser.Scene {
     const cost = this.getExpansionCost(level);
     if (!this.economy.canAfford(cost)) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      this.showToast(`Cannot afford ${definition.name}: need $${shortfall} more`, "error");
-      this.updateStats(`Cannot afford ${definition.name}: need $${shortfall} more`);
+      this.showToast(t("place.cannotAffordExpansion", { name: contentName(definition.name), money: formatMoney(shortfall) }), "error");
+      this.updateStats(t("place.cannotAffordExpansion", { name: contentName(definition.name), money: formatMoney(shortfall) }));
       return;
     }
 
@@ -2592,18 +2609,19 @@ export class GameScene extends Phaser.Scene {
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
 
-    const title = this.add.text(panelX + 24, panelY + 10, "Confirm Expansion", this.sectionTitleStyle());
+    const title = this.add.text(panelX + 24, panelY + 10, t("modals.expansionTitle"), this.sectionTitleStyle());
     const body = this.add
       .text(
         panelX + 24,
         panelY + 66,
-        `Expand ${definition.name} for $${cost}?\n\nThis spends money immediately, unlocks the next space, and moves exterior wall items to the new wall line.`,
+        t("modals.expansionBody", { name: contentName(definition.name), money: formatMoney(cost) }),
         this.panelTextStyle(15),
       )
       .setWordWrapWidth(panelWidth - 48)
       .setLineSpacing(5);
-    const cancel = this.createActionButton("Cancel", panelX + 236, panelY + 176, () => this.closeExpansionConfirmModal(), 118, 32, 14);
-    const confirm = this.createActionButton(`Expand $${cost}`, panelX + 372, panelY + 176, () => {
+    body.setWordWrapWidth(panelWidth - 48, shouldBreakByCharacter(body.text));
+    const cancel = this.createActionButton(t("buttons.cancel"), panelX + 236, panelY + 176, () => this.closeExpansionConfirmModal(), 118, 32, 14);
+    const confirm = this.createActionButton(t("modals.expandButton", { money: formatMoney(cost) }), panelX + 372, panelY + 176, () => {
       this.closeExpansionConfirmModal();
       this.buyExpansion(definition.level);
     }, 150, 32, 14);
@@ -2646,15 +2664,15 @@ export class GameScene extends Phaser.Scene {
     panel.fillRect(panelX, panelY + 30, panelWidth, 14);
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
-    const title = this.add.text(panelX + 18, panelY + 11, "Restaurant Upgrades", {
+    const title = this.add.text(panelX + 18, panelY + 11, t("upgrades.title"), {
       color: "#3b2a21",
-      fontFamily: "Arial",
+      fontFamily: FONTS.display,
       fontSize: "17px",
       fontStyle: "bold",
     });
     const closeButton = this.add.text(panelX + panelWidth - 40, panelY + 11, "X", {
       color: "#7a5b49",
-      fontFamily: "Arial",
+      fontFamily: FONTS.display,
       fontSize: "18px",
       fontStyle: "bold",
     }).setInteractive({ useHandCursor: true });
@@ -2666,13 +2684,13 @@ export class GameScene extends Phaser.Scene {
       const rowY = panelY + 62 + index * rowHeight;
       const status = this.add.text(panelX + 18, rowY, "", {
         color: "#3b2a21",
-        fontFamily: "Arial",
+        fontFamily: FONTS.display,
         fontSize: "14px",
         fontStyle: "bold",
       });
       const detail = this.add.text(panelX + 18, rowY + 20, "", {
         color: "#5e473a",
-        fontFamily: "Arial",
+        fontFamily: FONTS.display,
         fontSize: "12px",
       });
       detail.setWordWrapWidth(panelWidth - 190);
@@ -2681,9 +2699,9 @@ export class GameScene extends Phaser.Scene {
       this.upgradeRowWidgets.push({ id: definition.id, status, detail, button });
     });
 
-    const tip = this.add.text(panelX + 18, panelY + panelHeight - 32, "Upgrades apply immediately and are saved.", {
+    const tip = this.add.text(panelX + 18, panelY + panelHeight - 32, t("upgrades.tip"), {
       color: "#7a5b49",
-      fontFamily: "Arial",
+      fontFamily: FONTS.display,
       fontSize: "12px",
       fontStyle: "italic",
     });
@@ -2703,9 +2721,11 @@ export class GameScene extends Phaser.Scene {
       const definition = getUpgradeDefinition(row.id);
       const level = this.upgrades.getLevel(row.id);
       const maxed = this.upgrades.isMaxed(row.id);
-      row.status.setText(`${definition.name}  Lv.${level}/${definition.maxLevel}`);
-      row.detail.setText(`${definition.description}\n${maxed ? "Fully upgraded" : describeUpgradeEffect(row.id, level)}`);
-      row.button.setText(maxed ? "MAX" : `Upgrade\n$${this.upgrades.cost(row.id)}`);
+      row.status.setText(t("upgrades.rowTitle", { name: contentName(definition.name), level, max: definition.maxLevel }));
+      const detailText = `${contentDescription(definition.description)}\n${maxed ? t("upgrades.fullyUpgraded") : describeUpgradeEffect(row.id, level)}`;
+      row.detail.setText(detailText);
+      row.detail.setWordWrapWidth(470, shouldBreakByCharacter(detailText));
+      row.button.setText(maxed ? t("upgrades.max") : t("upgrades.buy", { money: formatMoney(this.upgrades.cost(row.id)) }));
     }
   }
 
@@ -2714,14 +2734,14 @@ export class GameScene extends Phaser.Scene {
     const purchased = this.upgrades.purchase(id);
     if (purchased === null) {
       if (this.upgrades.isMaxed(id)) {
-        this.showToast(`${definition.name} is already fully upgraded`, "info");
+        this.showToast(t("upgrades.alreadyMaxed", { name: contentName(definition.name) }), "info");
       } else {
-        this.showToast(`Need $${this.upgrades.cost(id)} for ${definition.name}`, "error");
+        this.showToast(t("upgrades.needMoney", { money: formatMoney(this.upgrades.cost(id)), name: contentName(definition.name) }), "error");
       }
       return;
     }
     this.persistQuietly();
-    this.updateStats(`${definition.name} upgraded to Lv.${purchased}`);
+    this.updateStats(t("upgrades.success", { name: contentName(definition.name), level: purchased }));
     this.refreshUpgradeModal();
     this.refreshCatalogUiIfReady();
   }
@@ -2746,7 +2766,7 @@ export class GameScene extends Phaser.Scene {
     const costLines = Object.entries(upgradeCost).map(([ingredientId, quantity]) => {
       const have = this.getIngredientQuantity(ingredientId);
       const enough = have >= quantity;
-      return `${enough ? "✓" : "!"} ${this.getIngredientIcon(ingredientId)} ${this.getIngredientName(ingredientId)} x${quantity}  have ${have}`;
+      return t("recipes.ingredientLine", { mark: enough ? "✓" : "!", icon: this.getIngredientIcon(ingredientId), name: contentName(this.getIngredientName(ingredientId)), need: quantity, have });
     });
     const currentPrice = this.getRecipeSellPrice(recipe);
     const currentProfit = this.getRecipeProfit(recipe);
@@ -2779,26 +2799,27 @@ export class GameScene extends Phaser.Scene {
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
 
-    const title = this.add.text(panelX + 24, panelY + 10, "Upgrade Recipe", this.sectionTitleStyle());
+    const title = this.add.text(panelX + 24, panelY + 10, t("recipes.title"), this.sectionTitleStyle());
+    const recipeName = contentName(recipe.name);
     const bodyText = canUpgrade
       ? [
-        `${recipe.name}: level ${level} → ${nextLevel}`,
-        `Price $${currentPrice} → $${nextPrice}    Profit +$${currentProfit} → +$${nextProfit}`,
-        `Appeal +${currentAppeal} → +${nextAppeal}`,
+        t("recipes.levelLine", { name: recipeName, from: level, to: nextLevel }),
+        t("recipes.priceLine", { from: formatMoney(currentPrice), to: formatMoney(nextPrice), profitFrom: formatMoney(currentProfit), profitTo: formatMoney(nextProfit) }),
+        t("recipes.appealLine", { from: currentAppeal, to: nextAppeal }),
         "",
-        `Upgrade cost: ${level * level} of each cooking ingredient`,
+        t("recipes.costLine", { count: level * level }),
         ...costLines,
       ].join("\n")
       : level >= maxRecipeUpgradeLevel
-        ? `${recipe.name} is already level ${maxRecipeUpgradeLevel}.`
+        ? t("recipes.maxedLine", { name: recipeName, level: maxRecipeUpgradeLevel })
         : this.getLuxuryLockText(recipe.name, this.getRecipeLuxuryTier(recipe));
     const body = this.add
       .text(panelX + 24, panelY + 66, bodyText, this.panelTextStyle(15))
-      .setWordWrapWidth(panelWidth - 48)
+      .setWordWrapWidth(panelWidth - 48, shouldBreakByCharacter(bodyText))
       .setLineSpacing(5);
-    const cancel = this.createActionButton("Cancel", panelX + 254, panelY + 304, () => this.closeRecipeUpgradeModal(), 118, 32, 14);
+    const cancel = this.createActionButton(t("buttons.cancel"), panelX + 254, panelY + 304, () => this.closeRecipeUpgradeModal(), 118, 32, 14);
     const confirm = this.createActionButton(
-      canUpgrade ? `Upgrade to L${nextLevel}` : "Max Level",
+      canUpgrade ? t("recipes.upgradeTo", { level: nextLevel }) : t("recipes.maxLevel"),
       panelX + 390,
       panelY + 304,
       () => this.upgradeRecipe(recipe.id),
@@ -2834,7 +2855,7 @@ export class GameScene extends Phaser.Scene {
 
     const level = this.getRecipeUpgradeLevel(recipe);
     if (level >= maxRecipeUpgradeLevel) {
-      const message = `${recipe.name} is already level ${maxRecipeUpgradeLevel}`;
+      const message = t("recipes.alreadyMaxed", { name: contentName(recipe.name), level: maxRecipeUpgradeLevel });
       this.showToast(message, "info");
       this.updateStats(message);
       return;
@@ -2843,9 +2864,9 @@ export class GameScene extends Phaser.Scene {
     const cost = this.getRecipeUpgradeCost(recipe);
     const missing = Object.entries(cost)
       .filter(([ingredientId, quantity]) => this.getIngredientQuantity(ingredientId) < quantity)
-      .map(([ingredientId, quantity]) => `${this.getIngredientName(ingredientId)} x${quantity - this.getIngredientQuantity(ingredientId)}`);
+      .map(([ingredientId, quantity]) => t("recipes.missingItem", { name: contentName(this.getIngredientName(ingredientId)), count: quantity - this.getIngredientQuantity(ingredientId) }));
     if (missing.length > 0) {
-      const message = `Need ${missing.slice(0, 3).join(", ")} to upgrade ${recipe.name}`;
+      const message = t("recipes.missingNeed", { missing: missing.slice(0, 3).join(", "), name: contentName(recipe.name) });
       this.showToast(message, "error");
       this.updateStats(message);
       this.openRecipeUpgradeModal(recipe.id);
@@ -2867,7 +2888,7 @@ export class GameScene extends Phaser.Scene {
     this.cooking.setRecipeUpgradeLevel(recipe.id, level + 1);
     this.persistQuietly();
     this.refreshCatalogUiIfReady();
-    const message = `${recipe.name} upgraded to level ${level + 1}`;
+    const message = t("recipes.success", { name: contentName(recipe.name), level: level + 1 });
     gameEvents.emit("upgrade-purchased", { upgradeId: `recipe-${recipe.id}`, level: level + 1, costText: "ingredients" });
     this.showToast(message, "success");
     this.updateStats(message);
@@ -2883,8 +2904,8 @@ export class GameScene extends Phaser.Scene {
     const cost = this.getExpansionCost(level);
     if (!this.spendMoney(cost, "decor")) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      this.showToast(`Cannot afford ${definition.name}: need $${shortfall} more`, "error");
-      this.updateStats(`Cannot afford ${definition.name}: need $${shortfall} more`);
+      this.showToast(t("place.cannotAffordExpansion", { name: contentName(definition.name), money: formatMoney(shortfall) }), "error");
+      this.updateStats(t("place.cannotAffordExpansion", { name: contentName(definition.name), money: formatMoney(shortfall) }));
       return;
     }
 
@@ -2896,8 +2917,8 @@ export class GameScene extends Phaser.Scene {
     this.renderFurniture();
     this.refreshCatalogUiIfReady();
     this.persistQuietly();
-    this.showToast(`${definition.name} unlocked for $${cost}. Luxury tier ${this.getUnlockedLuxuryTier()} available.`, "success");
-    this.updateStats(`${definition.name} unlocked. Tier ${this.getUnlockedLuxuryTier()} items available.`);
+    this.showToast(t("toast.expansionUnlocked", { name: contentName(definition.name), money: formatMoney(cost), tier: this.getUnlockedLuxuryTier() }), "success");
+    this.updateStats(t("toast.expansionUnlockedShort", { name: contentName(definition.name), tier: this.getUnlockedLuxuryTier() }));
   }
 
   private getUnlockedLuxuryTier(): LuxuryTier {
@@ -2942,58 +2963,59 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getLuxuryLockText(name: string, tier: LuxuryTier): string {
-    return `${name} is luxury tier ${tier}. Unlock expansion ${this.getExpansionRequiredForTier(tier)} to use it.`;
+    return t("tips.luxuryLocked", { name: contentName(name), tier, expansion: this.getExpansionRequiredForTier(tier) });
   }
 
   private createUi(): void {
-    this.drawPanelBox(leftPanelX - 10, 102, 318, 122, "Game");
-    this.createActionButton("New Game", leftPanelX + 4, 142, () => this.startNewGame(), 92, 32, 13);
-    this.createActionButton("Save", leftPanelX + 104, 142, () => this.openSaveModal("save"), 58, 32, 13);
-    this.createActionButton("Load", leftPanelX + 170, 142, () => this.openSaveModal("load"), 58, 32, 13);
-    this.adminButton = this.createActionButton("Admin", leftPanelX + 236, 142, () => this.openAdminModal(), 60, 32, 13);
-    this.createActionButton("Starter Grant", leftPanelX + 4, 180, () => this.claimStarterGrant(), 96, 32, 13);
-    this.streetButton = this.createActionButton("Go to street", leftPanelX + 108, 180, () => this.setMapViewMode(this.mapViewMode === "inside" ? "street" : "inside"), 104, 32, 13);
-    this.publicToggleButton = this.createActionButton("Close", leftPanelX + 220, 180, () => this.toggleRestaurantOpen(), 76, 32, 13);
+    this.drawPanelBox(leftPanelX - 10, 102, 318, 122, () => t("gamePanel.title"));
+    this.createActionButton(() => t("gamePanel.newGame"), leftPanelX + 4, 142, () => this.startNewGame(), 92, 32, 13);
+    this.createActionButton(() => t("gamePanel.save"), leftPanelX + 104, 142, () => this.openSaveModal("save"), 58, 32, 13);
+    this.createActionButton(() => t("gamePanel.load"), leftPanelX + 170, 142, () => this.openSaveModal("load"), 58, 32, 13);
+    this.adminButton = this.createActionButton(() => t("gamePanel.admin"), leftPanelX + 236, 142, () => this.openAdminModal(), 60, 32, 13);
+    this.createActionButton(() => t("gamePanel.starterGrant"), leftPanelX + 4, 180, () => this.claimStarterGrant(), 96, 32, 13);
+    this.streetButton = this.createActionButton(() => (this.mapViewMode === "inside" ? t("street.goToStreet") : t("street.goInside")), leftPanelX + 108, 180, () => this.setMapViewMode(this.mapViewMode === "inside" ? "street" : "inside"), 104, 32, 13);
+    this.publicToggleButton = this.createActionButton(() => (this.restaurantOpen ? t("buttons.closePublic") : t("buttons.open")), leftPanelX + 220, 180, () => this.toggleRestaurantOpen(), 76, 32, 13);
+    this.createLanguageButton(gameWidth - 162, 8);
 
-    this.drawPanelBox(leftPanelX - 10, 240, 318, 202, "Status");
-    this.statsText = this.add.text(leftPanelX + 4, 280, "", this.panelTextStyle(12)).setLineSpacing(5).setWordWrapWidth(138);
-    this.statsTextRight = this.add.text(leftPanelX + 154, 280, "", this.panelTextStyle(12)).setLineSpacing(5).setWordWrapWidth(136);
+    this.drawPanelBox(leftPanelX - 10, 240, 318, 202, () => t("statusPanel.title"));
+    this.statsText = this.wrapCJK(this.add.text(leftPanelX + 4, 280, "", this.panelTextStyle(12)).setLineSpacing(5), 138);
+    this.statsTextRight = this.wrapCJK(this.add.text(leftPanelX + 154, 280, "", this.panelTextStyle(12)).setLineSpacing(5), 136);
 
-    this.drawPanelBox(leftPanelX - 10, 456, 318, 128, "Action");
+    this.drawPanelBox(leftPanelX - 10, 456, 318, 128, () => t("actionPanel.title"));
     this.modeText = this.add.text(leftPanelX + 4, 494, "", this.panelTextStyle(13));
-    this.createActionButton("Deselect", leftPanelX + 204, 494, () => this.deselectSelection(), 92, 28, 13);
-    this.selectedText = this.add.text(leftPanelX + 4, 520, "", this.panelTextStyle(12)).setWordWrapWidth(280).setLineSpacing(1);
-    this.messageText = this.add.text(leftPanelX + 4, 546, "", this.panelTextStyle(11)).setWordWrapWidth(280).setLineSpacing(0);
+    this.createActionButton(() => t("actionPanel.deselect"), leftPanelX + 204, 494, () => this.deselectSelection(), 92, 28, 13);
+    this.selectedText = this.wrapCJK(this.add.text(leftPanelX + 4, 520, "", this.panelTextStyle(12)), 280).setLineSpacing(1);
+    this.messageText = this.wrapCJK(this.add.text(leftPanelX + 4, 546, "", this.panelTextStyle(11)), 280).setLineSpacing(0);
 
-    this.drawPanelBox(leftPanelX - 10, 596, 318, 276, "Build");
+    this.drawPanelBox(leftPanelX - 10, 596, 318, 276, () => t("buildPanel.title"));
     this.createBuildTabs();
     this.createBuildScrollList();
     this.drawBuildFooter();
-    this.createModeButton("Build", leftPanelX + 4, 840, "build", undefined, 62);
-    this.createModeButton("Move", leftPanelX + 76, 840, "move", undefined, 62);
-    this.createModeButton("Sell", leftPanelX + 148, 840, "remove", undefined, 62);
-    this.createModeButton("Seats", leftPanelX + 220, 840, "seat", undefined, 62);
+    this.createModeButton(() => t("mode.build"), leftPanelX + 4, 840, "build", undefined, 62);
+    this.createModeButton(() => t("mode.move"), leftPanelX + 76, 840, "move", undefined, 62);
+    this.createModeButton(() => t("mode.sell"), leftPanelX + 148, 840, "remove", undefined, 62);
+    this.createModeButton(() => t("mode.seat"), leftPanelX + 220, 840, "seat", undefined, 62);
     this.createZoomControls();
 
     this.createRightTabs();
 
-    this.addRightContent("ops", this.drawPanelBox(rightPanelX - 10, 164, 274, 492, "Staff"));
-    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 204, 250, 144, "Team"));
+    this.addRightContent("ops", this.drawPanelBox(rightPanelX - 10, 164, 274, 492, () => t("staffPanel.title")));
+    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 204, 250, 144, () => t("staffPanel.team")));
     this.staffTeamText = this.addRightContent(
       "ops",
-      this.add.text(rightPanelX + 14, 236, "", this.panelTextStyle(13)).setWordWrapWidth(224).setLineSpacing(4),
+      this.wrapCJK(this.add.text(rightPanelX + 14, 236, "", this.panelTextStyle(13)), 224).setLineSpacing(4) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
-    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 358, 250, 136, "Service"));
+    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 358, 250, 136, () => t("staffPanel.service")));
     this.staffServiceText = this.addRightContent(
       "ops",
-      this.add.text(rightPanelX + 14, 390, "", this.panelTextStyle(13)).setWordWrapWidth(224).setLineSpacing(4),
+      this.wrapCJK(this.add.text(rightPanelX + 14, 390, "", this.panelTextStyle(13)), 224).setLineSpacing(4) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
-    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 504, 250, 126, "Stock"));
+    this.addRightContent("ops", this.drawInnerPanelBox(rightPanelX + 2, 504, 250, 126, () => t("staffPanel.stock")));
     this.staffStockText = this.addRightContent(
       "ops",
-      this.add.text(rightPanelX + 14, 536, "", this.panelTextStyle(13)).setWordWrapWidth(224).setLineSpacing(4),
+      this.wrapCJK(this.add.text(rightPanelX + 14, 536, "", this.panelTextStyle(13)), 224).setLineSpacing(4) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
-    this.addRightContent("ops", this.drawPanelBox(rightPanelX - 10, 672, 274, 174, "Staff Actions"));
+    this.addRightContent("ops", this.drawPanelBox(rightPanelX - 10, 672, 274, 174, () => t("staffPanel.staffActions")));
     this.hireChefButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 4, 712, () => this.hireStaff("chef"), 118, 30, 13)) as Phaser.GameObjects.Text;
     this.fireChefButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 132, 712, () => this.fireStaff("chef"), 118, 30, 13)) as Phaser.GameObjects.Text;
     this.hireWaiterButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 4, 750, () => this.hireStaff("waiter"), 118, 30, 13)) as Phaser.GameObjects.Text;
@@ -3002,68 +3024,63 @@ export class GameScene extends Phaser.Scene {
     this.fireErrandButton = this.addRightContent("ops", this.createActionButton("", rightPanelX + 132, 788, () => this.fireStaff("errand"), 118, 30, 13)) as Phaser.GameObjects.Text;
     this.upgradesButton = this.addRightContent(
       "ops",
-      this.createActionButton("Upgrades", rightPanelX + 4, 828, () => this.openUpgradeModal(), 246, 32, 14),
+      this.createActionButton(() => t("staffPanel.upgradesButton"), rightPanelX + 4, 828, () => this.openUpgradeModal(), 246, 32, 14),
     ) as Phaser.GameObjects.Text;
 
-    this.addRightContent("menu", this.drawPanelBox(rightPanelX - 10, 164, 274, 708, "Recipe Menu"));
+    this.addRightContent("menu", this.drawPanelBox(rightPanelX - 10, 164, 274, 708, () => t("menuPanel.title")));
     this.addRightContent(
       "menu",
-      this.add.text(rightPanelX + 4, 204, "Pick up to 3 active recipes in each category.", this.panelTextStyle(14)).setWordWrapWidth(246),
+      this.createLocalizedText(rightPanelX + 4, 204, () => t("menuPanel.hint"), this.panelTextStyle(14), 246),
     );
     this.createRecipeMenuButtons();
 
     this.createStockScrollArea();
-    this.addStockContent(this.drawPanelBox(rightPanelX - 10, 164, 274, 206, "Auto-Shop"));
+    this.addStockContent(this.drawPanelBox(rightPanelX - 10, 164, 274, 206, () => t("stockPanel.autoShop")));
     this.addStockContent(
-      this.add.text(
-        rightPanelX + 4,
-        204,
-        "Errand helpers restock ingredients for active menu recipes.",
-        this.panelTextStyle(13),
-      ).setWordWrapWidth(246),
+      this.createLocalizedText(rightPanelX + 4, 204, () => t("stockPanel.autoShopHint"), this.panelTextStyle(13), 246),
     );
     this.autoShopButton = this.addStockActionButton(
-      this.createActionButton("Auto-Shop Off", rightPanelX + 4, 246, () => this.toggleAutoShop(), 246),
+      this.createActionButton(() => (this.autoShopEnabled ? t("autoShop.on") : t("autoShop.off")), rightPanelX + 4, 246, () => this.toggleAutoShop(), 246),
     ) as Phaser.GameObjects.Text;
-    this.addStockActionButton(this.createActionButton("- Target", rightPanelX + 4, 284, () => this.adjustStockTarget(-1), 76, 28, 12));
+    this.addStockActionButton(this.createActionButton(() => t("autoShop.minusTarget"), rightPanelX + 4, 284, () => this.adjustStockTarget(-1), 76, 28, 12));
     this.stockTargetText = this.addStockContent(
-      this.add.text(rightPanelX + 88, 288, "", this.panelTextStyle(13)).setWordWrapWidth(76),
+      this.wrapCJK(this.add.text(rightPanelX + 88, 288, "", this.panelTextStyle(13)), 76) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
-    this.addStockActionButton(this.createActionButton("+ Target", rightPanelX + 174, 284, () => this.adjustStockTarget(1), 76, 28, 12));
+    this.addStockActionButton(this.createActionButton(() => t("autoShop.plusTarget"), rightPanelX + 174, 284, () => this.adjustStockTarget(1), 76, 28, 12));
     this.errandOrderText = this.addStockContent(
-      this.add.text(rightPanelX + 4, 326, "", this.panelTextStyle(12)).setWordWrapWidth(246).setLineSpacing(0),
+      this.wrapCJK(this.add.text(rightPanelX + 4, 326, "", this.panelTextStyle(12)), 246).setLineSpacing(0) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
 
-    this.addStockContent(this.drawPanelBox(rightPanelX - 10, inNeedPanelY, 274, 130, "In Need"));
+    this.addStockContent(this.drawPanelBox(rightPanelX - 10, inNeedPanelY, 274, 130, () => t("stockPanel.inNeed")));
     this.createInNeedScrollList();
 
-    this.addStockContent(this.drawPanelBox(rightPanelX - 10, stockOnHandPanelY, 274, 176, "Stock On Hand"));
+    this.addStockContent(this.drawPanelBox(rightPanelX - 10, stockOnHandPanelY, 274, 176, () => t("stockPanel.stockOnHand")));
     this.createPantryScrollList();
-    this.addStockContent(this.drawPanelBox(rightPanelX - 10, kitchenTicketsPanelY, 274, 98, "Kitchen Tickets"));
+    this.addStockContent(this.drawPanelBox(rightPanelX - 10, kitchenTicketsPanelY, 274, 98, () => t("stockPanel.kitchenTickets")));
     this.queueText = this.addStockContent(
-      this.add.text(rightPanelX + 4, kitchenTicketsPanelY + 38, "", this.panelTextStyle(12)).setWordWrapWidth(246).setLineSpacing(2),
+      this.wrapCJK(this.add.text(rightPanelX + 4, kitchenTicketsPanelY + 38, "", this.panelTextStyle(12)), 246).setLineSpacing(2) as Phaser.GameObjects.Text,
     ) as Phaser.GameObjects.Text;
     this.stockScrollContentHeight = kitchenTicketsPanelY + 112 - stockTabScrollY;
     this.clampStockScroll();
     this.add.rectangle(mapViewport.x + 285, 122, 570, 26, 0xfff8e8, 0.92).setStrokeStyle(1, panelStroke, 0.75);
-    this.guideText = this.add.text(
+    this.guideText = this.createLocalizedText(
       mapViewport.x + 16,
       114,
-      "Chairs work beside tables. Better furniture raises ratings and attracts fuller orders.",
+      () => t("guide.banner"),
       this.panelTextStyle(12),
     ).setFixedSize(538, 26).setAlign("center").setPadding(0, 5, 0, 0);
     this.tooltipText = this.add
       .text(0, 0, "", {
         color: "#3b2a21",
         backgroundColor: "#fff8e8",
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
         padding: { x: 8, y: 6 },
       })
-      .setWordWrapWidth(260)
       .setLineSpacing(0)
       .setDepth(2000)
       .setVisible(false);
+    this.wrapCJK(this.tooltipText, 260);
     this.setRightTab("ops");
   }
 
@@ -3082,7 +3099,7 @@ export class GameScene extends Phaser.Scene {
       .text(1142, 92, "", {
         color: "#fffaf0",
         backgroundColor: "rgba(57, 43, 35, 0.78)",
-        fontFamily: "Consolas, monospace",
+        fontFamily: FONTS.mono,
         fontSize: "11px",
         padding: { x: 8, y: 5 },
       })
@@ -3129,13 +3146,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createFurnitureButton(furniture: FurnitureDefinition, x: number, y: number): void {
-    const button = this.add.text(x, y, `${furniture.name}  $${this.getFurniturePurchaseCost(furniture)}`, {
+    const button = this.add.text(x, y, t("buildPanel.furnitureItem", { name: contentName(furniture.name), money: formatMoney(this.getFurniturePurchaseCost(furniture)) }), {
       color: "#38251d",
       backgroundColor: "#fff8e8",
       fixedWidth: 300,
       fixedHeight: 26,
       padding: { x: 8, y: 4 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: "15px",
     });
 
@@ -3143,16 +3160,16 @@ export class GameScene extends Phaser.Scene {
     button.on("pointerdown", () => {
       this.mode = "build";
       this.placement.selectCatalogItem(furniture.id);
-      this.updateStats(`${furniture.name} selected`);
+      this.updateStats(t("buildPanel.selected", { name: contentName(furniture.name) }));
     });
   }
 
   private createBuildTabs(): void {
     this.buildTabButtons = {
-      furniture: this.createBuildTabButton("Furniture", leftPanelX + 4, 632, "furniture"),
-      kitchen: this.createBuildTabButton("Kitchen", leftPanelX + 82, 632, "kitchen"),
-      decor: this.createBuildTabButton("Decor", leftPanelX + 160, 632, "decor"),
-      walls: this.createBuildTabButton("Walls", leftPanelX + 238, 632, "walls"),
+      furniture: this.createBuildTabButton(() => t("buildPanel.tabFurniture"), leftPanelX + 4, 632, "furniture"),
+      kitchen: this.createBuildTabButton(() => t("buildPanel.tabKitchen"), leftPanelX + 82, 632, "kitchen"),
+      decor: this.createBuildTabButton(() => t("buildPanel.tabDecor"), leftPanelX + 160, 632, "decor"),
+      walls: this.createBuildTabButton(() => t("buildPanel.tabWalls"), leftPanelX + 238, 632, "walls"),
     };
     this.refreshBuildSubTabs();
   }
@@ -3160,7 +3177,7 @@ export class GameScene extends Phaser.Scene {
   private createZoomControls(): void {
     const controlsX = mapViewport.x + 600;
     const controlsY = 112;
-    this.add.text(controlsX, controlsY + 8, "Zoom", this.panelTextStyle(12)).setDepth(1200);
+    this.localizedMessageText(controlsX, controlsY + 8, "buildPanel.zoom", this.panelTextStyle(12)).setDepth(1200);
     this.createActionButton("-", controlsX + 44, controlsY, () => this.adjustRestaurantZoom(-restaurantZoomStep), 28, 28, 16).setDepth(1200);
     this.zoomText = this.add
       .text(controlsX + 78, controlsY + 6, "100%", {
@@ -3170,12 +3187,12 @@ export class GameScene extends Phaser.Scene {
         fixedHeight: 22,
         align: "center",
         padding: { x: 4, y: 4 },
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
       })
       .setDepth(1200);
     this.createActionButton("+", controlsX + 138, controlsY, () => this.adjustRestaurantZoom(restaurantZoomStep), 28, 28, 16).setDepth(1200);
-    this.add.text(controlsX + 196, controlsY + 8, "View", this.panelTextStyle(12)).setDepth(1200);
+    this.localizedMessageText(controlsX + 196, controlsY + 8, "buildPanel.view", this.panelTextStyle(12)).setDepth(1200);
     this.createActionButton("<", controlsX + 240, controlsY, () => this.rotateRestaurantView(-1), 28, 28, 16).setDepth(1200);
     this.viewRotationText = this.add
       .text(controlsX + 274, controlsY + 6, "0", {
@@ -3185,24 +3202,29 @@ export class GameScene extends Phaser.Scene {
         fixedHeight: 22,
         align: "center",
         padding: { x: 4, y: 4 },
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
       })
       .setDepth(1200);
     this.createActionButton(">", controlsX + 326, controlsY, () => this.rotateRestaurantView(1), 28, 28, 16).setDepth(1200);
   }
 
-  private createBuildTabButton(label: string, x: number, y: number, tab: BuildTab): Phaser.GameObjects.Text {
-    const button = this.add.text(x, y, label, {
+  private createBuildTabButton(
+    label: string | (() => string),
+    x: number,
+    y: number,
+    tab: BuildTab,
+  ): Phaser.GameObjects.Text {
+    const button = this.trackLocalizedText(this.add.text(x, y, "", {
       color: "#fffaf0",
       backgroundColor: "#715741",
       fixedWidth: 72,
       fixedHeight: 24,
       align: "center",
       padding: { x: 5, y: 4 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: "12px",
-    });
+    }), () => (typeof label === "string" ? label : label()));
     button.setInteractive({ useHandCursor: true });
     button.setDepth(uiDepth + 2);
     button.on("pointerdown", () => {
@@ -3229,7 +3251,7 @@ export class GameScene extends Phaser.Scene {
         fixedHeight: 24,
         align: "center",
         padding: { x: 3, y: 5 },
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: subTabs.length > 4 ? "10px" : "11px",
       });
       button.setInteractive({ useHandCursor: true });
@@ -3277,7 +3299,7 @@ export class GameScene extends Phaser.Scene {
       const unlocked = this.isFurnitureUnlocked(furniture);
       const tier = this.getFurnitureLuxuryTier(furniture);
       const button = this.createLocalActionButton(
-        `${furniture.name}  $${this.getFurniturePurchaseCost(furniture)}`,
+        t("buildPanel.furnitureItem", { name: contentName(furniture.name), money: formatMoney(this.getFurniturePurchaseCost(furniture)) }),
         0,
         index * 28,
         () => {
@@ -3290,7 +3312,7 @@ export class GameScene extends Phaser.Scene {
 
           this.mode = "build";
           this.placement.selectCatalogItem(furniture.id);
-          this.updateStats(`${furniture.name} selected`);
+          this.updateStats(t("buildPanel.selected", { name: contentName(furniture.name) }));
         },
         buildScrollWidth - 18,
         24,
@@ -3320,7 +3342,7 @@ export class GameScene extends Phaser.Scene {
   private getBuildCatalogItems(): FurnitureDefinition[] {
     return furnitureCatalog
       .filter((furniture) => this.getBuildSubTabForFurniture(furniture) === this.activeBuildSubTab)
-      .sort((a, b) => this.getFurnitureLuxuryTier(a) - this.getFurnitureLuxuryTier(b) || a.cost - b.cost || a.name.localeCompare(b.name));
+      .sort((a, b) => this.getFurnitureLuxuryTier(a) - this.getFurnitureLuxuryTier(b) || a.cost - b.cost || this.compareContentNames(a.name, b.name));
   }
 
   private getBuildSubTabs(tab: BuildTab): BuildSubTab[] {
@@ -3387,22 +3409,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getBuildSubTabLabel(tab: BuildSubTab): string {
-    const labels: Record<BuildSubTab, string> = {
-      tables: "Tables",
-      chairs: "Chairs",
-      stoves: "Stoves",
-      counters: "Counters",
-      dishwashing: "Dishes",
-      plants: "Plants",
-      decorations: "Decor",
-      lighting: "Lights",
-      wallFinishes: "Paints",
-      windows: "Windows",
-      doors: "Doors",
-      walls: "Walls",
-      flooring: "Floors",
+    const labels: Record<BuildSubTab, MessageKey> = {
+      tables: "buildPanel.subTables",
+      chairs: "buildPanel.subChairs",
+      stoves: "buildPanel.subStoves",
+      counters: "buildPanel.subCounters",
+      dishwashing: "buildPanel.subDishes",
+      plants: "buildPanel.subPlants",
+      decorations: "buildPanel.subDecor",
+      lighting: "buildPanel.subLights",
+      wallFinishes: "buildPanel.subPaints",
+      windows: "buildPanel.subWindows",
+      doors: "buildPanel.subDoors",
+      walls: "buildPanel.subWalls",
+      flooring: "buildPanel.subFloors",
     };
-    return labels[tab];
+    return t(labels[tab]);
   }
 
   private updateBuildTabStyles(): void {
@@ -3416,7 +3438,13 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private drawPanelBox(x: number, y: number, width: number, height: number, title: string): Phaser.GameObjects.Container {
+  private drawPanelBox(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    title: string | (() => string),
+  ): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
     const graphics = this.add.graphics();
     graphics.fillStyle(panelFill, 1);
@@ -3426,12 +3454,21 @@ export class GameScene extends Phaser.Scene {
     graphics.fillRect(0, 20, width, 12);
     graphics.lineStyle(2, panelStroke, 1);
     graphics.strokeRoundedRect(0, 0, width, height, 8);
-    const label = this.add.text(14, 6, title, this.sectionTitleStyle());
+    const label = this.trackLocalizedText(
+      this.add.text(14, 6, "", this.sectionTitleStyle()),
+      () => (typeof title === "string" ? title : title()),
+    );
     container.add([graphics, label]);
     return container;
   }
 
-  private drawInnerPanelBox(x: number, y: number, width: number, height: number, title: string): Phaser.GameObjects.Container {
+  private drawInnerPanelBox(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    title: string | (() => string),
+  ): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
     const graphics = this.add.graphics();
     graphics.fillStyle(0xfff8e8, 1);
@@ -3441,29 +3478,33 @@ export class GameScene extends Phaser.Scene {
     graphics.fillRect(0, 16, width, 10);
     graphics.lineStyle(1, panelStroke, 0.85);
     graphics.strokeRoundedRect(0, 0, width, height, 6);
-    const label = this.add.text(10, 4, title, this.sectionTitleStyle());
+    const label = this.trackLocalizedText(
+      this.add.text(10, 4, "", this.sectionTitleStyle()),
+      () => (typeof title === "string" ? title : title()),
+    );
     container.add([graphics, label]);
     return container;
   }
 
   private createModeButton(
-    label: string,
+    label: string | (() => string),
     x: number,
     y: number,
     mode: InteractionMode,
     onClick?: () => void,
     width = 70,
   ): void {
-    const button = this.add.text(x, y, label, {
+    const readLabel = (): string => (typeof label === "string" ? label : label());
+    const button = this.trackLocalizedText(this.add.text(x, y, "", {
       color: "#fffaf0",
       backgroundColor: "#715741",
       fixedWidth: width,
       fixedHeight: 28,
       align: "center",
       padding: { x: 8, y: 5 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: "14px",
-    });
+    }), readLabel);
 
     button.setInteractive({ useHandCursor: true });
     button.setDepth(uiDepth + 4);
@@ -3473,12 +3514,12 @@ export class GameScene extends Phaser.Scene {
         this.placement.clearSelection();
       }
       onClick?.();
-      this.updateStats(`${label} mode`);
+      this.updateStats(t("mode.suffix", { label: readLabel() }));
     });
   }
 
   private createActionButton(
-    label: string,
+    label: string | (() => string),
     x: number,
     y: number,
     onClick: () => void,
@@ -3486,15 +3527,15 @@ export class GameScene extends Phaser.Scene {
     height = 32,
     fontSize = 15,
   ): Phaser.GameObjects.Text {
-    const button = this.add.text(x, y, label, {
+    const button = this.trackLocalizedText(this.add.text(x, y, "", {
       color: "#fffaf0",
       backgroundColor: "#8f6251",
       fixedWidth: width,
       fixedHeight: height,
       padding: { x: 8, y: height <= 24 ? 4 : 7 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: `${fontSize}px`,
-    });
+    }), () => (typeof label === "string" ? label : label()));
 
     button.setInteractive({ useHandCursor: true });
     button.on("pointerdown", () => this.audio.play("click"));
@@ -3519,7 +3560,7 @@ export class GameScene extends Phaser.Scene {
     circle.strokeCircle(0, 0, 10);
     const label = this.add.text(0, 0, `${tier}`, {
       color: "#fffaf0",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "11px",
       fontStyle: "bold",
     }).setOrigin(0.5);
@@ -3549,7 +3590,7 @@ export class GameScene extends Phaser.Scene {
   private deselectSelection(): void {
     this.placement.clearSelection();
     this.hideTooltip();
-    this.updateStats("Selection cleared");
+    this.updateStats(t("actionPanel.selectionCleared"));
   }
 
   private showFurnitureTooltip(furniture: FurnitureDefinition, x: number, y: number): void {
@@ -3565,34 +3606,33 @@ export class GameScene extends Phaser.Scene {
         ? this.getLuxuryLockText(furniture.name, tier)
         :
       furniture.functionality === "decor"
-        ? "Higher style and comfort raise attractiveness."
+        ? t("tips.hintDecor")
         : furniture.functionality === "cooking"
-          ? "More cooking stations let more chefs work."
+          ? t("tips.hintCooking")
           : furniture.functionality === "seating"
-            ? "Seats only count beside a table, max 4 chairs per table."
-            : "Supports service and restaurant flow.";
+            ? t("tips.hintSeating")
+            : t("tips.hintService");
+    const tipText = [
+      contentName(furniture.name),
+      t("tips.luxuryTier", { tier }) + (unlocked ? "" : t("tips.lockedUntil", { level: this.getExpansionRequiredForTier(tier) })),
+      t("tips.sizeLine", { money: formatMoney(this.getFurniturePurchaseCost(furniture)), width: furniture.size.width, height: furniture.size.height }),
+      t("tips.comfortLine", { comfort: furniture.comfort, style: furniture.style }),
+      t("tips.useLine", { label: functionLabel }),
+      ...this.getFurnitureEffectLines(furniture),
+      upgradeHint,
+    ].join("\n");
     this.tooltipText
       .setStyle({
         color: "#3b2a21",
         backgroundColor: "#fff8e8",
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
         padding: { x: 8, y: 6 },
       })
-      .setWordWrapWidth(260)
       .setLineSpacing(0)
-      .setText(
-        [
-          furniture.name,
-          `Luxury tier ${tier}${unlocked ? "" : ` | locked until expansion ${this.getExpansionRequiredForTier(tier)}`}`,
-          `$${this.getFurniturePurchaseCost(furniture)} | ${furniture.size.width}x${furniture.size.height}`,
-          `Comfort ${furniture.comfort} | Style ${furniture.style}`,
-          `Use: ${functionLabel}`,
-          ...this.getFurnitureEffectLines(furniture),
-          upgradeHint,
-        ].join("\n"),
-      )
+      .setText(tipText)
       .setVisible(true);
+    this.wrapCJK(this.tooltipText, 260);
     this.moveTooltip(x, y);
   }
 
@@ -3654,7 +3694,7 @@ export class GameScene extends Phaser.Scene {
       .setStyle({
         color: "#3b2a21",
         backgroundColor: "#fff8e8",
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
         padding: { x: 8, y: 6 },
       })
@@ -3662,14 +3702,15 @@ export class GameScene extends Phaser.Scene {
       .setLineSpacing(0)
       .setText(
         [
-          furniture.name,
-          "Counter storage",
-          storedLines.length > 0 ? "Stored ready meals:" : "No stored ready meals.",
+          contentName(furniture.name),
+          t("tips.storageTitle"),
+          storedLines.length > 0 ? t("tips.storedMeals") : t("tips.noStoredMeals"),
           ...storedLines,
-          "Fresh ready dishes stay visible on stoves until picked up.",
+          t("tips.storageHint"),
         ].join("\n"),
       )
       .setVisible(true);
+    this.wrapCJK(this.tooltipText, 260);
     this.moveTooltip(x, y);
   }
 
@@ -3679,12 +3720,12 @@ export class GameScene extends Phaser.Scene {
       .sort(([recipeA], [recipeB]) => {
         const nameA = recipes.find((recipe) => recipe.id === recipeA)?.name ?? recipeA;
         const nameB = recipes.find((recipe) => recipe.id === recipeB)?.name ?? recipeB;
-        return nameA.localeCompare(nameB);
+        return this.compareContentNames(nameA, nameB);
       })
       .slice(0, 8)
       .map(([recipeId, count]) => {
         const recipe = recipes.find((item) => item.id === recipeId);
-        return `${recipe?.name ?? recipeId}: x${count}`;
+        return t("tips.storedItem", { name: recipe ? contentName(recipe.name) : recipeId, count });
       });
   }
 
@@ -3707,40 +3748,40 @@ export class GameScene extends Phaser.Scene {
     const actionText = !unlocked
       ? this.getLuxuryLockText(recipe.name, tier)
       : active
-        ? "Click to remove from active menu."
+        ? t("recipes.removeHint")
         : categoryCount >= 3
-          ? `Remove another ${this.formatRecipeCategory(recipe.category).toLowerCase()} first.`
-          : "Click to add to active menu.";
+          ? t("recipes.removeOtherFirst", { category: this.formatRecipeCategory(recipe.category) })
+          : t("recipes.addHint");
     const ingredientLines = recipe.ingredients.map((ingredient) => {
       const name = this.shortIngredientName(this.getIngredientName(ingredient));
       const quantity = this.getIngredientQuantity(ingredient);
       return `${name} ${quantity}`;
     });
     const missingText = missingIngredients.length > 0 && unlocked
-      ? `Need: ${missingIngredients.map((ingredient) => this.shortIngredientName(this.getIngredientName(ingredient))).join(", ")}`
+      ? t("recipes.needLine", { items: missingIngredients.map((ingredient) => this.shortIngredientName(this.getIngredientName(ingredient))).join(", ") })
       : "";
     const lines = [
-      `${recipe.name}  T${tier}  L${recipeLevel}`,
-      `${this.formatRecipeCategory(recipe.category)} | ${active ? "On menu" : "Off menu"} | Ready x${preparedCount}`,
-      `[Money] Sell $${sellPrice} | Cost $${ingredientCost} | +$${profit}`,
-      `[Kitchen] ${recipe.stationNeeded} | ${recipe.preparationTimeSeconds}s | Appeal +${satisfaction}`,
-      `[Stock] ${ingredientLines.join("  |  ")}`,
+      `${contentName(recipe.name)}  T${tier}  L${recipeLevel}`,
+      `${this.formatRecipeCategory(recipe.category)} | ${active ? t("recipes.onMenu") : t("recipes.offMenu")} | ${t("recipes.readyCount", { count: preparedCount })}`,
+      t("recipes.sellLine", { money: formatMoney(sellPrice), cost: formatMoney(ingredientCost), profit: formatMoney(profit) }),
+      t("recipes.kitchenLine", { station: t(recipe.stationNeeded === "stove" ? "stations.stove" : "stations.counter"), seconds: recipe.preparationTimeSeconds, appeal: satisfaction }),
+      t("recipes.stockLine", { lines: ingredientLines.join("  |  ") }),
       missingText,
-      `[Action] ${actionText}  Use arrow to upgrade.`,
+      t("recipes.actionLine", { action: actionText }),
     ].filter(Boolean);
 
     this.tooltipText
       .setStyle({
         color: "#3b2a21",
         backgroundColor: missingIngredients.length > 0 && unlocked ? "#f6ead7" : active ? "#eef5e8" : "#fff8e8",
-        fontFamily: "Arial, sans-serif",
+        fontFamily: FONTS.display,
         fontSize: "12px",
         padding: { x: 8, y: 6 },
       })
-      .setWordWrapWidth(238)
       .setLineSpacing(0)
       .setText(lines.join("\n"))
       .setVisible(true);
+    this.wrapCJK(this.tooltipText, 238);
     this.moveTooltip(x, y);
   }
 
@@ -3806,35 +3847,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   private formatFunctionality(functionality: FurnitureDefinition["functionality"]): string {
-    const labels: Record<FurnitureDefinition["functionality"], string> = {
-      seating: "seating",
-      cooking: "cooking station",
-      serving: "service",
-      decor: "decoration",
-      wall: "wall decor",
+    const labels: Record<FurnitureDefinition["functionality"], MessageKey> = {
+      seating: "tips.functionSeating",
+      cooking: "tips.functionCooking",
+      serving: "tips.functionServing",
+      decor: "tips.functionDecor",
+      wall: "tips.functionWallDecor",
     };
-    return labels[functionality];
+    return t(labels[functionality]);
   }
 
   private getFurnitureEffectLines(furniture: FurnitureDefinition): string[] {
     const lines: string[] = [];
     if (furniture.cookingSlots) {
-      lines.push(`Cooking slots: ${furniture.cookingSlots}`);
+      lines.push(t("tips.effectCookingSlots", { n: furniture.cookingSlots }));
     }
     if (furniture.seatingCapacity) {
-      lines.push(`Seats: ${furniture.seatingCapacity}`);
+      lines.push(t("tips.effectSeats", { n: furniture.seatingCapacity }));
     }
     if (furniture.tableSeatCapacity) {
-      lines.push(`Table capacity: ${furniture.tableSeatCapacity}`);
+      lines.push(t("tips.effectTableCapacity", { n: furniture.tableSeatCapacity }));
     }
     if (furniture.serviceSpeedBonus) {
-      lines.push(`Service speed: +${Math.round(furniture.serviceSpeedBonus * 100)}%`);
+      lines.push(t("tips.effectServiceSpeed", { n: Math.round(furniture.serviceSpeedBonus * 100) }));
     }
     if (furniture.ratingBonus) {
-      lines.push(`Guest rating: +${furniture.ratingBonus.toFixed(2)} stars`);
+      lines.push(t("tips.effectGuestRating", { n: furniture.ratingBonus.toFixed(2) }));
     }
     if (furniture.attractionBonus) {
-      lines.push(`Attraction: +${furniture.attractionBonus}`);
+      lines.push(t("tips.effectAttraction", { n: furniture.attractionBonus }));
     }
     return lines;
   }
@@ -3852,7 +3893,7 @@ export class GameScene extends Phaser.Scene {
         fixedWidth: recipeScrollWidth - 18,
         fixedHeight: 24,
         padding: { x: 7, y: 4 },
-        fontFamily: "Arial, Helvetica, sans-serif",
+        fontFamily: FONTS.ui,
         fontSize: "12px",
         fontStyle: "bold",
       });
@@ -3862,7 +3903,7 @@ export class GameScene extends Phaser.Scene {
 
       recipes
         .filter((recipe) => recipe.category === category)
-        .sort((a, b) => this.getRecipeLuxuryTier(a) - this.getRecipeLuxuryTier(b) || this.getRecipeSellPrice(a) - this.getRecipeSellPrice(b) || a.name.localeCompare(b.name))
+        .sort((a, b) => this.getRecipeLuxuryTier(a) - this.getRecipeLuxuryTier(b) || this.getRecipeSellPrice(a) - this.getRecipeSellPrice(b) || this.compareContentNames(a.name, b.name))
         .forEach((recipe) => {
           const unlocked = this.isRecipeUnlocked(recipe);
           const active = this.cooking.isOnMenu(recipe.id);
@@ -3933,7 +3974,9 @@ export class GameScene extends Phaser.Scene {
         { amount: 3, x: 120, width: 54 },
         { amount: 12, x: 178, width: 50 },
       ].forEach(({ amount, x, width }) => {
-        const label = amount === 1 ? `${this.getIngredientIcon(ingredient.id)} ${this.shortIngredientName(ingredient.name)} +1` : `+${amount}`;
+        const label = amount === 1
+          ? t("pantry.buyOne", { icon: this.getIngredientIcon(ingredient.id), name: this.shortIngredientName(contentName(ingredient.name)), suffix: "" })
+          : t("pantry.buyMany", { count: amount });
         const button = this.createLocalActionButton(
           label,
           x,
@@ -3984,7 +4027,7 @@ export class GameScene extends Phaser.Scene {
       fixedWidth: width,
       fixedHeight: height,
       padding: { x: 7, y: height <= 24 ? 4 : 7 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: `${fontSize}px`,
     });
     button.setInteractive({ useHandCursor: true });
@@ -4006,7 +4049,7 @@ export class GameScene extends Phaser.Scene {
 
   private createPantryScrollList(): void {
     this.pantryScrollContainer = this.add.container(pantryScrollX, pantryScrollY);
-    this.pantryText = this.add.text(0, 0, "", this.panelTextStyle(13)).setWordWrapWidth(pantryScrollWidth - 24).setLineSpacing(3);
+    this.pantryText = this.wrapCJK(this.add.text(0, 0, "", this.panelTextStyle(13)), pantryScrollWidth - 24).setLineSpacing(3);
     this.pantryScrollContainer.add(this.pantryText);
 
     this.pantryMaskShape = this.add
@@ -4031,7 +4074,7 @@ export class GameScene extends Phaser.Scene {
 
   private createInNeedScrollList(): void {
     this.inNeedScrollContainer = this.add.container(inNeedScrollX, inNeedScrollY);
-    this.inNeedText = this.add.text(0, 0, "", this.panelTextStyle(12)).setWordWrapWidth(inNeedScrollWidth - 24).setLineSpacing(2);
+    this.inNeedText = this.wrapCJK(this.add.text(0, 0, "", this.panelTextStyle(12)), inNeedScrollWidth - 24).setLineSpacing(2);
     this.inNeedScrollContainer.add(this.inNeedText);
 
     this.inNeedMaskShape = this.add
@@ -4056,23 +4099,23 @@ export class GameScene extends Phaser.Scene {
 
   private createRightTabs(): void {
     this.rightTabButtons = {
-      ops: this.createTabButton("Ops", rightPanelX - 10, 116, "ops"),
-      menu: this.createTabButton("Menu", rightPanelX + 82, 116, "menu"),
-      stock: this.createTabButton("Stock", rightPanelX + 174, 116, "stock"),
+      ops: this.createTabButton(() => t("staffPanel.tabOps"), rightPanelX - 10, 116, "ops"),
+      menu: this.createTabButton(() => t("staffPanel.tabMenu"), rightPanelX + 82, 116, "menu"),
+      stock: this.createTabButton(() => t("staffPanel.tabStock"), rightPanelX + 174, 116, "stock"),
     };
   }
 
-  private createTabButton(label: string, x: number, y: number, tab: RightPanelTab): Phaser.GameObjects.Text {
-    const button = this.add.text(x, y, label, {
+  private createTabButton(label: string | (() => string), x: number, y: number, tab: RightPanelTab): Phaser.GameObjects.Text {
+    const button = this.trackLocalizedText(this.add.text(x, y, "", {
       color: "#fffaf0",
       backgroundColor: "#715741",
       fixedWidth: 84,
       fixedHeight: 30,
       align: "center",
       padding: { x: 8, y: 6 },
-      fontFamily: "Arial, sans-serif",
+      fontFamily: FONTS.display,
       fontSize: "14px",
-    });
+    }), () => (typeof label === "string" ? label : label()));
     button.setInteractive({ useHandCursor: true });
     button.on("pointerdown", () => this.setRightTab(tab));
     return button;
@@ -4210,7 +4253,7 @@ export class GameScene extends Phaser.Scene {
       this.setTextIfChanged(this.viewRotationText, `${this.restaurantViewRotationStep * 90}`);
     }
     this.updatePreview(this.input.activePointer);
-    this.updateStats(`View rotated ${this.restaurantViewRotationStep * 90} degrees`);
+    this.updateStats(t("stats.viewRotated", { degrees: this.restaurantViewRotationStep * 90 }));
   }
 
   private invalidateSpatialCaches(): void {
@@ -4236,13 +4279,13 @@ export class GameScene extends Phaser.Scene {
 
       if (guest.state === "entering") {
         guest.state = "waitingToOrder";
-        guest.bubble.setText("Ready to order");
+        guest.bubble.setText(tEn("bubble.readyToOrder"));
         guest.seatedAt = this.time.now;
         guest.patience = this.getGuestPatienceSeconds(guest);
       } else if (guest.state === "paying") {
         this.stopGuestEatingAnimation(guest);
         guest.state = "served";
-        guest.bubble.setText("Payment pending");
+        guest.bubble.setText(tEn("bubble.paymentPending"));
       }
 
       activeGuestIds.add(guest.id);
@@ -4340,10 +4383,10 @@ export class GameScene extends Phaser.Scene {
         actor.busyUntil = this.time.now + 350;
         actor.bubble.setText(
           cookingTicket
-            ? `Cooking ${cookingTicket.recipe.name}`
+            ? tEn("bubble.cookingDish", { name: contentName(cookingTicket.recipe.name) })
             : role === "chef" && index >= this.getStoveCount()
-              ? "Need stove"
-              : "Ready",
+              ? tEn("bubble.needStove")
+              : tEn("bubble.ready"),
         );
         this.drawPersonPose(actor.body, actor.legs, role === "chef" ? "up" : "down", 0, false);
         if (cookingTicket) {
@@ -4986,8 +5029,8 @@ export class GameScene extends Phaser.Scene {
     const target = this.getWallPlacementTarget(definition, localPointer);
     if (!target) {
       const message = this.isDoorFurniture(definition.id)
-        ? "Doors replace the front entrance only"
-        : `Choose a wall for ${definition.name}`;
+        ? t("place.doorsWallOnly")
+        : t("place.chooseWall", { name: contentName(definition.name) });
       if (this.isDoorFurniture(definition.id)) {
         this.showToast(message, "error");
       }
@@ -5005,7 +5048,7 @@ export class GameScene extends Phaser.Scene {
       rotation: target.rotation,
     });
     if (!hasSpace) {
-      return { ok: false, message: "That wall spot already has decor" };
+      return { ok: false, message: t("place.wallDecorTaken") };
     }
 
     if (this.mode === "move") {
@@ -5015,7 +5058,7 @@ export class GameScene extends Phaser.Scene {
     const cost = this.getFurniturePurchaseCost(definition);
     if (!this.economy.canAfford(cost)) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      return { ok: false, message: `Not enough money: need $${shortfall} more for ${definition.name}` };
+      return { ok: false, message: t("place.notEnoughMoney", { money: formatMoney(shortfall), name: contentName(definition.name) }) };
     }
 
     return this.placement.tryPlaceSelected(target.position);
@@ -5047,7 +5090,7 @@ export class GameScene extends Phaser.Scene {
         this.persistQuietly();
       }
       this.placement.clearSelection();
-      const message = `${definition.name} is already installed`;
+      const message = t("place.alreadyInstalled", { name: contentName(definition.name) });
       this.showToast(message, "info");
       return { ok: true, message };
     }
@@ -5055,7 +5098,7 @@ export class GameScene extends Phaser.Scene {
     const cost = this.getFurniturePurchaseCost(definition);
     if (!this.spendMoney(cost, "decor")) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      const message = `Not enough money: need $${shortfall} more for ${definition.name}`;
+      const message = t("place.notEnoughMoney", { money: formatMoney(shortfall), name: contentName(definition.name) });
       this.showToast(message, "error");
       return { ok: false, message };
     }
@@ -5071,7 +5114,7 @@ export class GameScene extends Phaser.Scene {
     this.requestFurnitureRender("entrance-door-replaced");
     this.persistQuietly();
 
-    const message = `${definition.name} installed at the entrance`;
+    const message = t("place.installedEntrance", { name: contentName(definition.name) });
     this.showToast(message, "success");
     return { ok: true, message };
   }
@@ -5097,7 +5140,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === "cook") {
       this.spawnGuests(this.time.now, true);
-      return { ok: true, message: "A guest was invited in for service testing" };
+      return { ok: true, message: t("stats.testGuestInvited") };
     }
 
     const placementValidation = this.validateSelectedPlacement(position);
@@ -5111,7 +5154,7 @@ export class GameScene extends Phaser.Scene {
       const cost = this.getFurniturePurchaseCost(definition);
       if (this.canPlaceSelectedAt(definition, position) && !this.economy.canAfford(cost)) {
         const shortfall = Math.max(0, cost - this.economy.getMoney());
-        return { ok: false, message: `Not enough money: need $${shortfall} more for ${definition.name}` };
+        return { ok: false, message: t("place.notEnoughMoney", { money: formatMoney(shortfall), name: contentName(definition.name) }) };
       }
     }
 
@@ -5133,7 +5176,7 @@ export class GameScene extends Phaser.Scene {
   } {
     const ruleValidation = this.validateSelectedPlacement(position);
     if (!ruleValidation.ok) {
-      return { ok: false, affordable: true, message: ruleValidation.message || "Blocked" };
+      return { ok: false, affordable: true, message: ruleValidation.message || t("place.blocked") };
     }
 
     const hasSpace = this.grid.canPlace(definition, position, this.placement.getFurniture(), undefined, {
@@ -5141,16 +5184,16 @@ export class GameScene extends Phaser.Scene {
       rotation: this.placement.getSelectedRotation(),
     });
     if (!hasSpace) {
-      return { ok: false, affordable: true, message: "Blocked" };
+      return { ok: false, affordable: true, message: t("place.blocked") };
     }
 
     const cost = this.getFurniturePurchaseCost(definition);
     if (!this.economy.canAfford(cost)) {
       const shortfall = Math.max(0, cost - this.economy.getMoney());
-      return { ok: true, affordable: false, message: `Need $${shortfall} more` };
+      return { ok: true, affordable: false, message: t("place.needMore", { money: formatMoney(shortfall) }) };
     }
 
-    return { ok: true, affordable: true, message: "R rotate" };
+    return { ok: true, affordable: true, message: t("place.rotateHint") };
   }
 
   private getMovePlacementPreview(definition: FurnitureDefinition, position: GridPosition): {
@@ -5160,12 +5203,12 @@ export class GameScene extends Phaser.Scene {
   } {
     const placed = this.placement.getSelectedPlacedFurniture();
     if (!placed) {
-      return { ok: false, affordable: true, message: "Select furniture first" };
+      return { ok: false, affordable: true, message: t("place.selectFirst") };
     }
 
     const ruleValidation = this.validateSelectedMove(position);
     if (!ruleValidation.ok) {
-      return { ok: false, affordable: true, message: ruleValidation.message || "Blocked" };
+      return { ok: false, affordable: true, message: ruleValidation.message || t("place.blocked") };
     }
 
     const hasSpace = this.grid.canPlace(definition, position, this.placement.getFurniture(), placed.uid, {
@@ -5173,10 +5216,10 @@ export class GameScene extends Phaser.Scene {
       rotation: this.placement.getSelectedRotation(),
     });
     if (!hasSpace) {
-      return { ok: false, affordable: true, message: "Spot occupied" };
+      return { ok: false, affordable: true, message: t("place.spotOccupied") };
     }
 
-    return { ok: true, affordable: true, message: "R rotate" };
+    return { ok: true, affordable: true, message: t("place.rotateHint") };
   }
 
   private canMoveSelectedAt(position: GridPosition): boolean {
@@ -5192,7 +5235,7 @@ export class GameScene extends Phaser.Scene {
   private rotateSelection(): void {
     if (this.getActiveWallPlacementDefinition()) {
       this.updatePreview(this.input.activePointer);
-      this.updateStats("Wall items rotate automatically");
+      this.updateStats(t("place.wallAutoRotate"));
       return;
     }
 
@@ -5206,7 +5249,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === "build" && this.placement.getSelectedFurnitureId()) {
       const rotation = this.placement.rotateSelectedCatalog();
       this.updatePreview(this.input.activePointer);
-      this.updateStats(`Rotation: ${rotation} degrees`);
+      this.updateStats(t("place.rotationDegrees", { degrees: rotation }));
     }
   }
 
@@ -5217,7 +5260,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!this.isFurnitureWithinUnlockedArea(selectedId, position, this.placement.getSelectedRotation())) {
-      return { ok: false, message: "Buy expansion first" };
+      return { ok: false, message: t("place.buyExpansionFirst") };
     }
 
     const ruleValidation = this.validateFurnitureRules(selectedId, position);
@@ -5236,7 +5279,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!this.isFurnitureWithinUnlockedArea(placed.furnitureId, position, this.placement.getSelectedRotation())) {
-      return { ok: false, message: "Buy expansion first" };
+      return { ok: false, message: t("place.buyExpansionFirst") };
     }
 
     const ruleValidation = this.validateFurnitureRules(placed.furnitureId, position, placed.uid);
@@ -5277,8 +5320,8 @@ export class GameScene extends Phaser.Scene {
     return {
       ok: false,
       message: largestTable
-        ? `Nearby tables are full (${largestTable.definition.name}: ${largestTable.capacity} seats)`
-        : "Nearby tables are full",
+        ? t("place.tablesFull", { name: contentName(largestTable.definition.name), seats: largestTable.capacity })
+        : t("place.tablesFullPlain"),
     };
   }
 
@@ -5310,7 +5353,7 @@ export class GameScene extends Phaser.Scene {
       this.canReachPoint(waiterHomePoint, baseRouteAnchorPoint, baseFurniture) &&
       this.canReachPoint(baseRouteAnchorPoint, restaurantExitPoint, baseFurniture, true);
     if (kitchenWasReachable && !kitchenReachable) {
-      return { ok: false, message: "Blocks staff route to kitchen" };
+      return { ok: false, message: t("place.blocksStaffRoute") };
     }
 
     const baseChefStations = this.getChefStations(baseFurniture);
@@ -5320,7 +5363,7 @@ export class GameScene extends Phaser.Scene {
       return wasReachable && !this.canReachPoint(candidateRouteAnchorPoint, station, candidateFurniture);
     });
     if (blockedChef) {
-      return { ok: false, message: "Blocks waiter route to chef" };
+      return { ok: false, message: t("place.blocksWaiterChefRoute") };
     }
 
     const baseReachableSeats = new Set(
@@ -5332,7 +5375,7 @@ export class GameScene extends Phaser.Scene {
       (seat) => baseReachableSeats.has(seat.seatUid) && !this.canReachPoint(candidateRouteAnchorPoint, seat.serviceSpot, candidateFurniture),
     );
     if (blockedSeat) {
-      return { ok: false, message: "Blocks waiter route to table" };
+      return { ok: false, message: t("place.blocksWaiterTableRoute") };
     }
 
     return { ok: true, message: "" };
@@ -5358,17 +5401,17 @@ export class GameScene extends Phaser.Scene {
       .sort((a, b) => a.distance - b.distance)[0];
 
     if (!nearest || nearest.distance > 34) {
-      return { ok: false, message: "Click directly on a chair seat to disable or enable it" };
+      return { ok: false, message: t("place.seatToggleHint") };
     }
 
     const occupiedSeats = this.getOccupiedSeatUids();
     if (occupiedSeats.has(nearest.seat.seatUid)) {
-      return { ok: false, message: "That seat is occupied right now" };
+      return { ok: false, message: t("place.seatOccupied") };
     }
 
     const chair = this.placement.getFurniture().find((item) => item.uid === nearest.seat.chairUid);
     if (!chair) {
-      return { ok: false, message: "Seat no longer exists" };
+      return { ok: false, message: t("place.seatGone") };
     }
 
     const disabled = new Set(chair.disabledSeatIndexes ?? []);
@@ -5385,7 +5428,7 @@ export class GameScene extends Phaser.Scene {
 
     return {
       ok: true,
-      message: disabled.has(nearest.seat.seatIndex) ? "Seat disabled" : "Seat enabled",
+      message: disabled.has(nearest.seat.seatIndex) ? t("place.seatDisabled") : t("place.seatEnabled"),
     };
   }
 
@@ -5917,15 +5960,18 @@ export class GameScene extends Phaser.Scene {
       signBg.lineStyle(1, 0x5b4033, 0.45);
       signBg.lineBetween(34, 12, signWidth - 34, 12);
     }
-    const text = this.add.text(signWidth / 2 - 1, 13, `${label}\n$${this.getExpansionCost(expansion.level)}`, {
-      color: "#fff4dc",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "10px",
-      fontStyle: "bold",
-      align: "center",
-      fixedWidth: signWidth - 42,
-      lineSpacing: -1,
-    }).setOrigin(0.5, 0);
+    const text = this.trackLocalizedText(
+      this.add.text(signWidth / 2 - 1, 13, "", {
+        color: "#fff4dc",
+        fontFamily: FONTS.ui,
+        fontSize: "10px",
+        fontStyle: "bold",
+        align: "center",
+        fixedWidth: signWidth - 42,
+        lineSpacing: -1,
+      }).setOrigin(0.5, 0),
+      () => t("buildPanel.expandCost", { name: contentName(label), money: formatMoney(this.getExpansionCost(expansion.level)) }),
+    );
     sign.add([signBg, text]);
     sign.setSize(signWidth, totalHeight);
     sign.setInteractive(
@@ -6071,7 +6117,7 @@ export class GameScene extends Phaser.Scene {
     }
     const label = this.add.text(point.x + 18, point.y - 40, `x${this.dirtyDishCount}`, {
       color: "#3b2a21",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "12px",
       fontStyle: "bold",
       backgroundColor: "rgba(255,248,232,0.85)",
@@ -8034,7 +8080,7 @@ export class GameScene extends Phaser.Scene {
     if (!target) {
       this.preview.setVisible(false);
       this.previewHint
-        .setText(this.isDoorFurniture(definition.id) ? "Choose the front entrance" : "Choose a wall")
+        .setText(this.isDoorFurniture(definition.id) ? t("place.chooseEntrance") : t("place.chooseAWall"))
         .setPosition(localPointer.x + 18, localPointer.y - 24)
         .setVisible(true);
       return;
@@ -8050,15 +8096,16 @@ export class GameScene extends Phaser.Scene {
       });
     const cost = this.getFurniturePurchaseCost(definition);
     const affordable = this.mode === "move" || this.economy.canAfford(cost);
+    const needMore = () => t("place.needMore", { money: formatMoney(Math.max(0, cost - this.economy.getMoney())) });
     const message = !hasSpace
-      ? "Wall spot taken"
+      ? t("place.wallSpotTaken")
       : this.isDoorFurniture(definition.id)
         ? affordable
-          ? "Replace entrance door"
-          : `Need $${Math.max(0, cost - this.economy.getMoney())} more`
+          ? t("place.replaceDoor")
+          : needMore()
         : affordable
-          ? "Wall snap"
-        : `Need $${Math.max(0, cost - this.economy.getMoney())} more`;
+          ? t("place.wallSnap")
+          : needMore();
     const previewFill = !hasSpace ? 0xd66b6b : affordable ? 0x8fcf9b : 0xe7b75a;
     const previewStroke = !hasSpace ? 0xff2f2f : affordable ? 0x42b968 : 0xd88a17;
     const previewItem: PlacedFurniture = {
@@ -8105,7 +8152,7 @@ export class GameScene extends Phaser.Scene {
   private hireStaff(role: StaffRole): void {
     const cost = this.getStaffHireCost(role);
     if (!this.spendMoney(cost, "staff")) {
-      this.updateStats(`Need $${cost} to hire a ${role}`);
+      this.updateStats(t("staff.needToHire", { money: formatMoney(cost), role: this.getStaffRoleLabel(role) }));
       return;
     }
 
@@ -8113,34 +8160,34 @@ export class GameScene extends Phaser.Scene {
     this.addStaffActor(role, newStaffIndex);
     gameEvents.emit("staff-hired", { role, index: newStaffIndex });
     this.persistQuietly();
-    this.updateStats(`${this.staffSystem.getStaffRoleLabel(role)} hired`);
+    this.updateStats(t("staff.hired", { role: this.getStaffRoleLabel(role) }));
   }
 
   private fireStaff(role: StaffRole): void {
     const cost = this.getStaffFireCost(role);
-    const roleLabel = this.getStaffRoleLabel(role).toLowerCase();
+    const roleLabel = this.getStaffRoleLabel(role);
     const remainingAfterQueuedFire = this.getStaffCount(role) - this.staffSystem.getPendingFirings(role) - 1;
     if (role === "chef" && remainingAfterQueuedFire < 1) {
-      this.showToast("Keep at least one chef on the team", "error");
-      this.updateStats("Keep at least one chef");
+      this.showToast(t("staff.keepOneChefToast"), "error");
+      this.updateStats(t("staff.keepOneChef"));
       return;
     }
 
     if (role === "waiter" && remainingAfterQueuedFire < 1) {
-      this.showToast("Keep at least one waiter on the team", "error");
-      this.updateStats("Keep at least one waiter");
+      this.showToast(t("staff.keepOneWaiterToast"), "error");
+      this.updateStats(t("staff.keepOneWaiter"));
       return;
     }
 
     if (remainingAfterQueuedFire < 0) {
-      const message = `No ${roleLabel} available to fire`;
+      const message = t("staff.noneToFire", { role: roleLabel });
       this.showToast(message, "error");
       this.updateStats(message);
       return;
     }
 
     if (!this.spendMoney(cost, "staff")) {
-      const message = `Need $${cost} to fire this ${roleLabel}`;
+      const message = t("staff.needToFire", { money: formatMoney(cost), role: roleLabel });
       this.showToast(message, "error");
       this.updateStats(message);
       return;
@@ -8150,7 +8197,7 @@ export class GameScene extends Phaser.Scene {
     if (actor) {
       this.removeStaffActorForFiring(role, actor);
       this.persistQuietly();
-      const message = `${this.getStaffRoleLabel(role)} fired for $${cost}`;
+      const message = t("staff.fired", { role: this.getStaffRoleLabel(role), money: formatMoney(cost) });
       this.showToast(message, "success");
       this.updateStats(message);
       return;
@@ -8158,7 +8205,7 @@ export class GameScene extends Phaser.Scene {
 
     this.staffSystem.queueFiring(role);
     this.persistQuietly();
-    const message = `${this.getStaffRoleLabel(role)} firing queued. They will leave after the current job.`;
+    const message = t("staff.fireQueued", { role: this.getStaffRoleLabel(role) });
     this.showToast(message, "info");
     this.updateStats(message);
   }
@@ -8173,7 +8220,7 @@ export class GameScene extends Phaser.Scene {
 
         this.staffSystem.drainPendingFiring(role);
         this.removeStaffActorForFiring(role, actor);
-        const message = `${this.getStaffRoleLabel(role)} finished their job and left.`;
+        const message = t("staff.fireLeft", { role: this.getStaffRoleLabel(role) });
         this.showToast(message, "success");
         this.updateStats(message);
         this.persistQuietly();
@@ -8189,7 +8236,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getStaffRoleLabel(role: StaffRole): string {
-    return this.staffSystem.getStaffRoleLabel(role);
+    const keys: Record<StaffRole, MessageKey> = {
+      chef: "staff.roleChef",
+      waiter: "staff.roleWaiter",
+      errand: "staff.roleErrand",
+    };
+    return t(keys[role]);
   }
 
   private getStaffHireCost(role: StaffRole): number {
@@ -8233,7 +8285,11 @@ export class GameScene extends Phaser.Scene {
     const rentDue = this.getDailyRent() * periodsDue;
     this.forceSpendMoney(rentDue);
     const balance = this.economy.getMoney();
-    this.updateStats(balance < 0 ? `Daily rent charged: $${rentDue}. Balance is -$${Math.abs(balance)}.` : `Daily rent paid: $${rentDue}`);
+    this.updateStats(
+      balance < 0
+        ? t("stats.rentCharged", { rent: formatMoney(rentDue), balance: formatMoney(Math.abs(balance)) })
+        : t("stats.rentPaid", { money: formatMoney(rentDue) }),
+    );
     this.persistQuietly();
   }
 
@@ -8251,7 +8307,7 @@ export class GameScene extends Phaser.Scene {
     const net = revenue - expenses;
     const netLabel = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
     this.updateStats(
-      `Day ${day} ended: served ${served}, lost ${lost}, revenue $${revenue}, expenses $${expenses} (net ${netLabel}).`,
+      t("stats.dayEnded", { day, served, lost, revenue: formatMoney(revenue), expenses: formatMoney(expenses), net: netLabel }),
     );
     this.economy.resetDailyTotals();
     this.customers.resetDailyTotals();
@@ -8272,10 +8328,10 @@ export class GameScene extends Phaser.Scene {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     if (hours > 0) {
-      return `${hours}h ${minutes}m`;
+      return t("offline.durationHoursMinutes", { hours, minutes });
     }
 
-    return `${minutes}m`;
+    return t("offline.durationMinutes", { minutes });
   }
 
   private toggleRestaurantOpen(): void {
@@ -8284,7 +8340,7 @@ export class GameScene extends Phaser.Scene {
       this.nextGuestAt = Math.min(this.nextGuestAt, this.time.now + guestRerouteRetryMs);
     }
     this.persistQuietly();
-    this.updateStats(this.restaurantOpen ? "Restaurant opened to the public" : "Restaurant closed to new guests");
+    this.updateStats(this.restaurantOpen ? t("stats.restaurantOpened") : t("stats.restaurantClosed"));
   }
 
   private startNewGame(): void {
@@ -8297,7 +8353,7 @@ export class GameScene extends Phaser.Scene {
 
   private loadSavedGame(): void {
     if (!this.saveSystem.load(this.currentSaveSlot)) {
-      this.updateStats("No saved game found");
+      this.updateStats(t("modals.noSavedGame"));
       return;
     }
 
@@ -8322,26 +8378,26 @@ export class GameScene extends Phaser.Scene {
     panel.fillRect(500, 218, 600, 14);
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(500, 188, 600, 420, 10);
-    const title = this.add.text(526, 200, mode === "save" ? "Save Game" : "Load Game", this.headingStyle());
-    const close = this.createActionButton("Close", 990, 198, () => this.closeSaveModal(), 82, 28, 13);
+    const title = this.add.text(526, 200, mode === "save" ? t("modals.saveTitle") : t("modals.loadTitle"), this.headingStyle());
+    const close = this.createActionButton(t("buttons.close"), 990, 198, () => this.closeSaveModal(), 82, 28, 13);
     modal.add([shade, panel, title, close]);
 
     this.saveSystem.listSlots().forEach(({ slot, save }, index) => {
       const y = 258 + index * 96;
-      const selected = slot === this.currentSaveSlot ? "Current" : `Slot ${slot}`;
+      const selected = slot === this.currentSaveSlot ? t("modals.current") : t("modals.slot", { slot });
       const summary = save
-        ? `${selected}: Day ${save.dayNumber}, $${save.money}, Rating ${this.formatSavedRating(save)}`
-        : `${selected}: Empty`;
-      const detail = save?.lastSavedAt ? `Saved ${new Date(save.lastSavedAt).toLocaleString()}` : "No save data yet";
+        ? t("modals.slotSummary", { tag: selected, day: save.dayNumber, money: formatMoney(save.money), rating: this.formatSavedRating(save) })
+        : t("modals.slotEmptyTagged", { tag: selected });
+      const detail = save?.lastSavedAt ? t("modals.savedAt", { date: formatDateTime(save.lastSavedAt) }) : t("modals.noSaveData");
       const slotBox = this.add.graphics();
       slotBox.fillStyle(0xfff8e8, 1);
       slotBox.fillRoundedRect(526, y, 548, 74, 6);
       slotBox.lineStyle(1, panelStroke, 1);
       slotBox.strokeRoundedRect(526, y, 548, 74, 6);
-      const summaryText = this.add.text(542, y + 10, summary, this.panelTextStyle(15)).setWordWrapWidth(350);
-      const detailText = this.add.text(542, y + 38, detail, this.panelTextStyle(12)).setWordWrapWidth(350);
+      const summaryText = this.wrapCJK(this.add.text(542, y + 10, summary, this.panelTextStyle(15)), 350);
+      const detailText = this.wrapCJK(this.add.text(542, y + 38, detail, this.panelTextStyle(12)), 350);
       const action = this.createActionButton(
-        mode === "save" ? "Save Here" : "Load",
+        mode === "save" ? t("modals.saveHere") : t("modals.loadButton"),
         944,
         y + 20,
         () => (mode === "save" ? this.saveToSlot(slot) : this.loadFromSlot(slot)),
@@ -8350,7 +8406,7 @@ export class GameScene extends Phaser.Scene {
         13,
       );
       if (mode === "load" && !save) {
-        action.setText("Empty");
+        action.setText(t("modals.empty"));
         action.setBackgroundColor("#8a7a64");
       }
       modal.add([slotBox, summaryText, detailText, action]);
@@ -8381,33 +8437,35 @@ export class GameScene extends Phaser.Scene {
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(520, 124, 560, 744, 10);
 
-    const title = this.add.text(546, 136, "Admin Settings", this.headingStyle());
-    const close = this.createActionButton("Close", 970, 134, () => this.closeAdminModal(), 84, 28, 13);
-    const intro = this.add
-      .text(546, 178, "Tune prototype economy values. Changes save immediately and affect new purchases/orders.", this.panelTextStyle(13))
-      .setWordWrapWidth(500);
+    const title = this.add.text(546, 136, t("admin.title"), this.headingStyle());
+    const close = this.createActionButton(t("buttons.close"), 970, 134, () => this.closeAdminModal(), 84, 28, 13);
+    const intro = this.wrapCJK(
+      this.add.text(546, 178, t("admin.intro"), this.panelTextStyle(13)),
+      500,
+    );
 
-    modal.add([shade, panel, title, close, intro]);
+    const languageButton = this.createLanguageButton(800, 132, 3210);
+    modal.add([shade, panel, title, close, intro, languageButton]);
     this.addAdminSettingRow(
       modal,
       226,
-      "Payroll",
-      `$${this.adminSettings.payrollPerStaffPerMinute}/staff/min`,
+      t("admin.payroll"),
+      t("admin.payrollValue", { money: formatMoney(this.adminSettings.payrollPerStaffPerMinute) }),
       () => this.adjustAdminPayroll(-1),
       () => this.adjustAdminPayroll(1),
     );
     this.addAdminSettingRow(
       modal,
       284,
-      "Starter Profit",
-      `$${this.adminSettings.starterRecipeProfit}/level`,
+      t("admin.starterProfit"),
+      t("admin.starterProfitValue", { money: formatMoney(this.adminSettings.starterRecipeProfit) }),
       () => this.adjustAdminStarterProfit(-1),
       () => this.adjustAdminStarterProfit(1),
     );
     this.addAdminSettingRow(
       modal,
       342,
-      "Item Costs",
+      t("admin.itemCosts"),
       this.formatItemCostMultiplier(),
       () => this.adjustAdminItemCostMultiplier(-0.1),
       () => this.adjustAdminItemCostMultiplier(0.1),
@@ -8415,31 +8473,31 @@ export class GameScene extends Phaser.Scene {
     this.addAdminSettingRow(
       modal,
       400,
-      "Base Rent",
-      `$${this.adminSettings.baseDailyRent}/day`,
+      t("admin.baseRent"),
+      t("admin.baseRentValue", { money: formatMoney(this.adminSettings.baseDailyRent) }),
       () => this.adjustAdminBaseRent(-250),
       () => this.adjustAdminBaseRent(250),
     );
     this.addAdminSettingRow(
       modal,
       458,
-      "Rent / Expansion",
-      `$${this.adminSettings.rentPerExpansion}/space`,
+      t("admin.rentPerExpansion"),
+      t("admin.rentPerExpansionValue", { money: formatMoney(this.adminSettings.rentPerExpansion) }),
       () => this.adjustAdminRentPerExpansion(-250),
       () => this.adjustAdminRentPerExpansion(250),
     );
     this.addAdminSettingRow(
       modal,
       516,
-      "First Expansion",
-      `$${this.adminSettings.firstExpansionCost}`,
+      t("admin.firstExpansion"),
+      formatMoney(this.adminSettings.firstExpansionCost),
       () => this.adjustAdminFirstExpansionCost(-500),
       () => this.adjustAdminFirstExpansionCost(500),
     );
     this.addAdminSettingRow(
       modal,
       574,
-      "Expansion Mult.",
+      t("admin.expansionMult"),
       this.formatExpansionCostMultiplier(),
       () => this.adjustAdminExpansionCostMultiplier(-0.25),
       () => this.adjustAdminExpansionCostMultiplier(0.25),
@@ -8447,16 +8505,16 @@ export class GameScene extends Phaser.Scene {
     this.addAdminSettingRow(
       modal,
       632,
-      "Trash Drop",
+      t("admin.trashDrop"),
       this.formatTrashDropChance(),
       () => this.adjustAdminTrashDropChance(-0.05),
       () => this.adjustAdminTrashDropChance(0.05),
     );
     this.addAdminPerformanceBox(modal);
-    const ledger = this.createActionButton("Open Log", 546, 818, () => this.openTransactionLogSheet(), 104, 30, 13);
-    const repair = this.createActionButton("Repair Save", 666, 818, () => this.repairCurrentSave(), 118, 30, 13);
-    const undoExpansion = this.createActionButton("Undo Space", 800, 818, () => this.undoLastExpansion(), 108, 30, 13);
-    const reset = this.createActionButton("Defaults", 924, 818, () => this.resetAdminSettings(), 104, 30, 13);
+    const ledger = this.createActionButton(t("admin.openLog"), 546, 818, () => this.openTransactionLogSheet(), 104, 30, 13);
+    const repair = this.createActionButton(t("admin.repairSave"), 666, 818, () => this.repairCurrentSave(), 118, 30, 13);
+    const undoExpansion = this.createActionButton(t("admin.undoSpace"), 800, 818, () => this.undoLastExpansion(), 108, 30, 13);
+    const reset = this.createActionButton(t("admin.defaults"), 924, 818, () => this.resetAdminSettings(), 104, 30, 13);
     modal.add([ledger, repair, undoExpansion, reset]);
 
     this.adminModal = modal;
@@ -8468,9 +8526,9 @@ export class GameScene extends Phaser.Scene {
     box.fillRoundedRect(546, 692, 508, 106, 6);
     box.lineStyle(1, panelStroke, 0.85);
     box.strokeRoundedRect(546, 692, 508, 106, 6);
-    const title = this.add.text(566, 700, "Performance", this.panelTextStyle(15)).setFixedSize(150, 22);
+    const title = this.add.text(566, 700, t("admin.performance"), this.panelTextStyle(15)).setFixedSize(150, 22);
     const visualGuides = this.createActionButton(
-      this.showVisualAnchorOverlay ? "Hide Guides" : "Show Guides",
+      this.showVisualAnchorOverlay ? t("admin.hideGuides") : t("admin.showGuides"),
       926,
       698,
       () => this.toggleVisualAnchorOverlay(),
@@ -8481,7 +8539,7 @@ export class GameScene extends Phaser.Scene {
     const diagnostics = this.add
       .text(566, 728, this.getPerformanceDiagnosticsText(), {
         color: "#3b2a21",
-        fontFamily: "Consolas, monospace",
+        fontFamily: FONTS.mono,
         fontSize: "10px",
       })
       .setLineSpacing(1)
@@ -8492,7 +8550,7 @@ export class GameScene extends Phaser.Scene {
   private toggleVisualAnchorOverlay(): void {
     this.showVisualAnchorOverlay = !this.showVisualAnchorOverlay;
     this.renderFurniture(true);
-    this.updateStats(this.showVisualAnchorOverlay ? "Visual anchor guides enabled" : "Visual anchor guides hidden");
+    this.updateStats(this.showVisualAnchorOverlay ? t("admin.guidesEnabled") : t("admin.guidesHidden"));
     this.openAdminModal();
   }
 
@@ -8535,20 +8593,20 @@ export class GameScene extends Phaser.Scene {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      this.showToast("Transaction log downloaded.", "success");
+      this.showToast(t("admin.logDownloaded"), "success");
     } else {
-      this.showToast("Transaction log opened.", "success");
+      this.showToast(t("admin.logOpened"), "success");
     }
 
     window.setTimeout(() => URL.revokeObjectURL(url), 30000);
-    this.updateStats("Transaction log exported");
+    this.updateStats(t("admin.logExported"));
   }
 
   private createTransactionLogCsv(): string {
     const rows = [
-      ["Transaction", "Balance"],
+      [tEn("modals.transaction"), tEn("modals.balance")],
       ...this.economy.getTransactionLog().map((entry) => [
-        `${new Date(entry.at).toLocaleString()} - ${entry.transaction}`,
+        `${formatDateTime(entry.at)} - ${entry.transaction}`,
         `$${entry.balance}`,
       ]),
     ];
@@ -8590,7 +8648,7 @@ export class GameScene extends Phaser.Scene {
     const removedGuests = before.guests - this.guests.length;
     const removedTickets = before.tickets - this.tickets.length;
     const releasedSeats = before.dirtySeats + before.cleaningSeats - this.dirtySeatUids.size - this.cleaningSeatUids.size;
-    const message = `Repair complete: removed ${removedGuests} stale guests, ${removedTickets} stale tickets, released ${Math.max(0, releasedSeats)} seats.`;
+    const message = t("admin.repairComplete", { guests: removedGuests, tickets: removedTickets, seats: Math.max(0, releasedSeats) });
     this.showToast(message, "success");
     this.updateStats(message);
     this.openAdminModal();
@@ -8598,7 +8656,7 @@ export class GameScene extends Phaser.Scene {
 
   private undoLastExpansion(): void {
     if (this.expansionLevel <= starterExpansionLevel) {
-      const message = "No expansion to undo.";
+      const message = t("admin.noExpansionToUndo");
       this.showToast(message, "info");
       this.updateStats(message);
       this.openAdminModal();
@@ -8607,7 +8665,7 @@ export class GameScene extends Phaser.Scene {
 
     const expansion = this.getExpansionDefinitions().find((definition) => definition.level === this.expansionLevel);
     if (!expansion) {
-      const message = "Could not find the current expansion.";
+      const message = t("admin.expansionNotFound");
       this.showToast(message, "error");
       this.updateStats(message);
       this.openAdminModal();
@@ -8616,8 +8674,11 @@ export class GameScene extends Phaser.Scene {
 
     const blockingFurniture = this.getExpansionUndoBlockers(expansion);
     if (blockingFurniture.length > 0) {
-      const itemWord = blockingFurniture.length === 1 ? "item" : "items";
-      const message = `Move or sell ${blockingFurniture.length} ${itemWord} in ${expansion.name} first.`;
+      const message = t("admin.moveItemsFirst", {
+        count: blockingFurniture.length,
+        items: isChinese() ? t("admin.itemsWord") : blockingFurniture.length === 1 ? t("admin.itemWord") : t("admin.itemsWord"),
+        name: contentName(expansion.name),
+      });
       this.showToast(message, "error");
       this.updateStats(message);
       this.openAdminModal();
@@ -8637,8 +8698,8 @@ export class GameScene extends Phaser.Scene {
     this.persistImmediately();
 
     const message = wallItemsToMove > 0
-      ? `${expansion.name} expansion undone. ${wallItemsToMove} wall item${wallItemsToMove === 1 ? "" : "s"} moved with the wall. Refunded $${refund}.`
-      : `${expansion.name} expansion undone. Refunded $${refund}.`;
+      ? t("admin.expansionUndone", { name: contentName(expansion.name), count: wallItemsToMove, money: formatMoney(refund) })
+      : t("admin.expansionUndoneSimple", { name: contentName(expansion.name), money: formatMoney(refund) });
     this.showToast(message, "success");
     this.updateStats(message);
     this.openAdminModal();
@@ -8695,7 +8756,7 @@ export class GameScene extends Phaser.Scene {
       0,
       100,
     );
-    this.applyAdminSettingsChange("Payroll updated");
+    this.applyAdminSettingsChange(t("admin.updatedPayroll"));
   }
 
   private adjustAdminIngredientCost(delta: number): void {
@@ -8704,7 +8765,7 @@ export class GameScene extends Phaser.Scene {
       1,
       250,
     );
-    this.applyAdminSettingsChange("Ingredient cost updated");
+    this.applyAdminSettingsChange(t("admin.updatedIngredientCost"));
   }
 
   private adjustAdminStarterProfit(delta: number): void {
@@ -8713,7 +8774,7 @@ export class GameScene extends Phaser.Scene {
       0,
       1000,
     );
-    this.applyAdminSettingsChange("Starter recipe profit updated");
+    this.applyAdminSettingsChange(t("admin.updatedStarterProfit"));
   }
 
   private adjustAdminItemCostMultiplier(delta: number): void {
@@ -8722,7 +8783,7 @@ export class GameScene extends Phaser.Scene {
       0.1,
       10,
     );
-    this.applyAdminSettingsChange("Item cost multiplier updated");
+    this.applyAdminSettingsChange(t("admin.updatedItemCosts"));
   }
 
   private adjustAdminBaseRent(delta: number): void {
@@ -8731,7 +8792,7 @@ export class GameScene extends Phaser.Scene {
       0,
       1000000,
     );
-    this.applyAdminSettingsChange("Base rent updated");
+    this.applyAdminSettingsChange(t("admin.updatedBaseRent"));
   }
 
   private adjustAdminRentPerExpansion(delta: number): void {
@@ -8740,7 +8801,7 @@ export class GameScene extends Phaser.Scene {
       0,
       1000000,
     );
-    this.applyAdminSettingsChange("Expansion rent updated");
+    this.applyAdminSettingsChange(t("admin.updatedExpansionRent"));
   }
 
   private adjustAdminFirstExpansionCost(delta: number): void {
@@ -8749,7 +8810,7 @@ export class GameScene extends Phaser.Scene {
       0,
       10000000,
     );
-    this.applyAdminSettingsChange("First expansion cost updated");
+    this.applyAdminSettingsChange(t("admin.updatedFirstExpansion"));
   }
 
   private adjustAdminExpansionCostMultiplier(delta: number): void {
@@ -8758,7 +8819,7 @@ export class GameScene extends Phaser.Scene {
       1,
       20,
     );
-    this.applyAdminSettingsChange("Expansion cost multiplier updated");
+    this.applyAdminSettingsChange(t("admin.updatedExpansionMult"));
   }
 
   private adjustAdminTrashDropChance(delta: number): void {
@@ -8767,7 +8828,7 @@ export class GameScene extends Phaser.Scene {
       0,
       1,
     );
-    this.applyAdminSettingsChange(`Trash drop rate set to ${this.formatTrashDropChance()}`);
+    this.applyAdminSettingsChange(t("admin.updatedTrashRate", { value: this.formatTrashDropChance() }));
   }
 
   private resetAdminSettings(): void {
@@ -8782,7 +8843,7 @@ export class GameScene extends Phaser.Scene {
       expansionCostMultiplier: defaultExpansionCostMultiplier,
       trashDropChance: defaultTrashDropChance,
     };
-    this.applyAdminSettingsChange("Admin settings reset");
+    this.applyAdminSettingsChange(t("admin.settingsReset"));
   }
 
   private applyAdminSettingsChange(message: string): void {
@@ -8804,12 +8865,12 @@ export class GameScene extends Phaser.Scene {
     this.registry.set("currentSaveSlot", slot);
     this.persistImmediately();
     this.closeSaveModal();
-    this.updateStats(`Saved game to slot ${slot}`);
+    this.updateStats(t("stats.savedToSlot", { slot }));
   }
 
   private loadFromSlot(slot: number): void {
     if (!this.saveSystem.load(slot)) {
-      this.updateStats(`Slot ${slot} is empty`);
+      this.updateStats(t("stats.slotEmpty", { slot }));
       return;
     }
 
@@ -8826,20 +8887,20 @@ export class GameScene extends Phaser.Scene {
     const history = hydrateRatingHistoryFromSave(save);
     const votes = history.length;
     const average = votes === 0 ? 3 : history.reduce((sum, rating) => sum + rating, 0) / votes;
-    return `${average.toFixed(1)}/5 (${votes} recent votes)`;
+    return t("rating.recentVotes", { avg: average.toFixed(1), votes });
   }
 
   private claimStarterGrant(): void {
     const money = this.economy.getMoney();
     if (money >= starterGrantTarget) {
-      this.updateStats("Starter Grant is only available below $220");
+      this.updateStats(t("stats.grantBelow", { money: formatMoney(starterGrantTarget) }));
       return;
     }
 
     const grant = starterGrantTarget - money;
     this.earnMoney(grant, "grant");
     this.persistQuietly();
-    this.updateStats(`Starter Grant added $${grant}`);
+    this.updateStats(t("stats.grantAdded", { money: formatMoney(grant) }));
   }
 
   private earnMoney(amount: number, reason: EarnReason = "payment"): void {
@@ -9037,7 +9098,7 @@ export class GameScene extends Phaser.Scene {
       legs.setVisible(false);
     }
     this.drawPersonPose(body, legs, "down", 0, false);
-    const bubble = this.createStatusBubble(0, statusBubbleLocalY, role === "chef" ? "Ready" : "Ready");
+    const bubble = this.createStatusBubble(0, statusBubbleLocalY, tEn("bubble.ready"));
     container.add(sprite ? [legs, body, sprite, bubble] : [legs, body, bubble]);
     this.actorLayer.add(container);
 
@@ -9068,7 +9129,7 @@ export class GameScene extends Phaser.Scene {
 
     bubble.setText = ((value: string | string[]) => {
       const text = Array.isArray(value) ? value.join("\n") : value;
-      const iconText = this.getStatusBubbleIcon(text);
+      const iconText = this.localizeBubbleBadge(this.getStatusBubbleIcon(text));
       bubble.setData("rawText", text);
       originalSetText(iconText);
       const existingTimer = bubble.getData("hideTimer") as Phaser.Time.TimerEvent | undefined;
@@ -9211,6 +9272,47 @@ export class GameScene extends Phaser.Scene {
     return null;
   }
 
+  /**
+   * Bubbles display short task badges (ORD/EAT/HOT...) parsed from the
+   * canonical English status text; this maps the badge itself to the active
+   * locale's shorthand without touching the English-based classifier.
+   */
+  private localizeBubbleBadge(badge: string): string {
+    const stars: Record<string, MessageKey> = {
+      "*1": "bubble.badgeStar1",
+      "*2": "bubble.badgeStar2",
+      "*3": "bubble.badgeStar3",
+      "*4": "bubble.badgeStar4",
+      "*5": "bubble.badgeStar5",
+    };
+    const tokens: Record<string, MessageKey> = {
+      ORD: "bubble.badgeOrd",
+      EAT: "bubble.badgeEat",
+      NO: "bubble.badgeNo",
+      HOT: "bubble.badgeHot",
+      "HOT+": "bubble.badgeHotPlus",
+      WAIT: "bubble.badgeWait",
+      "TKT>": "bubble.badgeTktNext",
+      TKT: "bubble.badgeTkt",
+      PICK: "bubble.badgePick",
+      SERV: "bubble.badgeServ",
+      $: "bubble.badgePay",
+      CLR: "bubble.badgeClr",
+      DISH: "bubble.badgeDish",
+      WASH: "bubble.badgeWash",
+      SHOP: "bubble.badgeShop",
+      BOX: "bubble.badgeBox",
+      HOLD: "bubble.badgeHold",
+      OK: "bubble.badgeOk",
+    };
+    const [base, ...rest] = badge.split(" ");
+    if (base === "!") {
+      return [`!${t(tokens[rest[0]] ?? "bubble.badgeHot")}`, ...rest.slice(1)].join(" ");
+    }
+    const mapped = stars[base] ? t(stars[base]) : tokens[base] ? t(tokens[base]) : base;
+    return [mapped, ...rest].join(" ");
+  }
+
   private withBubbleCount(icon: string, count: number | null): string {
     return count && count > 1 ? `${icon} x${count}` : icon;
   }
@@ -9262,7 +9364,7 @@ export class GameScene extends Phaser.Scene {
       legs.setVisible(false);
     }
     this.drawPersonPose(body, legs, "down", 0, false);
-    const bubble = this.createStatusBubble(0, statusBubbleLocalY, `Wants ${this.getOrderSummary(orderItems)}`);
+    const bubble = this.createStatusBubble(0, statusBubbleLocalY, tEn("bubble.wants", { order: this.getOrderSummary(orderItems) }));
     container.add(sprite ? [legs, body, sprite, bubble] : [legs, body, bubble]);
     this.actorLayer.add(container);
 
@@ -9463,7 +9565,7 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    pedestrian.bubble.setText(`No ${this.formatRecipeCategory(expectation.category).toLowerCase()}`);
+    pedestrian.bubble.setText(tEn("bubble.noCategory", { category: this.formatRecipeCategory(expectation.category) }));
     return true;
   }
 
@@ -9502,7 +9604,7 @@ export class GameScene extends Phaser.Scene {
     pedestrian.snackGraphic?.destroy();
     pedestrian.snackGraphic = undefined;
     this.createPavementTrashFromWorldPoint(new Phaser.Math.Vector2(pedestrian.container.x, pedestrian.container.y), snackKind);
-    pedestrian.bubble.setText("Trash");
+    pedestrian.bubble.setText(tEn("bubble.trash"));
   }
 
   private createPavementTrashFromWorldPoint(point: Phaser.Math.Vector2, kind: PavementSnackKind): void {
@@ -9600,7 +9702,7 @@ export class GameScene extends Phaser.Scene {
     const graphic = this.add.graphics();
     this.drawDroppedTrash(graphic, kind);
     const icon = this.add.text(0, -30, "♻", {
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "24px",
       color: "#247a45",
       stroke: "#fff7dc",
@@ -9642,7 +9744,7 @@ export class GameScene extends Phaser.Scene {
     trash.container.destroy();
     this.pavementTrash = this.pavementTrash.filter((item) => item.id !== id);
     this.earnMoney(trashRecycleReward, "grant");
-    this.updateStats(`Recycled litter +$${trashRecycleReward}`);
+    this.updateStats(t("bubble.recycledLitter", { money: formatMoney(trashRecycleReward) }));
     this.persistQuietly();
   }
 
@@ -9866,7 +9968,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.pendingOfflineOutcome = outcome;
-    const away = `Away for ${this.formatOfflineDuration(outcome.cappedSeconds)}`;
+    const away = t("offline.awayShort", { duration: this.formatOfflineDuration(outcome.cappedSeconds) });
     if (outcome.shoppingItems > 0) {
       this.applyOfflineShopping(outcome.shoppingItems);
     }
@@ -9874,8 +9976,8 @@ export class GameScene extends Phaser.Scene {
     if (outcome.kind !== "served") {
       this.offlineSummaryMessage =
         outcome.kind === "closed"
-          ? `${away}. Restaurant was closed, so no new guests entered.`
-          : `${away}. No service progress: add seats, chefs/stoves, waiters, or menu recipes.`;
+          ? t("offline.closedLine", { away })
+          : t("offline.noProgressLine", { away });
       return;
     }
 
@@ -9970,25 +10072,25 @@ export class GameScene extends Phaser.Scene {
     panel.lineStyle(2, panelStroke, 1);
     panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
 
-    const title = this.add.text(panelX + 24, panelY + 10, "While You Were Away", this.sectionTitleStyle());
-    const lines: string[] = [`You were gone for ${this.formatOfflineDuration(outcome.cappedSeconds)}.`];
+    const title = this.add.text(panelX + 24, panelY + 10, t("offline.title"), this.sectionTitleStyle());
+    const lines: string[] = [t("offline.goneFor", { duration: this.formatOfflineDuration(outcome.cappedSeconds) })];
     if (outcome.kind === "closed") {
-      lines.push("The restaurant was closed, so no new guests entered.");
+      lines.push(t("offline.closed"));
     } else if (outcome.kind === "no-service") {
-      lines.push("No service progress: add seats, chefs/stoves, waiters, or menu recipes.");
+      lines.push(t("offline.noProgress"));
     } else if (outcome.served > 0) {
-      lines.push(`Staff served ${outcome.served} guests and earned $${outcome.revenue}.`);
+      lines.push(t("offline.served", { count: outcome.served, money: formatMoney(outcome.revenue) }));
     } else {
-      lines.push("No guests were served because ingredients ran out.");
+      lines.push(t("offline.outOfStock"));
     }
     if (outcome.shoppingItems > 0) {
-      lines.push(`Errand crew restocked ${outcome.shoppingItems} ingredients.`);
+      lines.push(t("offline.restocked", { count: outcome.shoppingItems }));
     }
     const body = this.add
       .text(panelX + 24, panelY + 66, lines.join("\n"), this.panelTextStyle(15))
-      .setWordWrapWidth(panelWidth - 48)
+      .setWordWrapWidth(panelWidth - 48, shouldBreakByCharacter(lines.join("\n")))
       .setLineSpacing(5);
-    const okay = this.createActionButton("Back to the floor", panelX + 200, panelY + 176, () => {
+    const okay = this.createActionButton(t("offline.backToWork"), panelX + 200, panelY + 176, () => {
       modal.destroy();
       this.offlineRewardModal = null;
     }, 160, 32, 14);
@@ -10033,10 +10135,10 @@ export class GameScene extends Phaser.Scene {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     if (hours > 0) {
-      return `${hours}h ${minutes}m`;
+      return t("offline.durationHoursMinutes", { hours, minutes });
     }
 
-    return `${minutes}m`;
+    return t("offline.durationMinutes", { minutes });
   }
 
   private drawPersonPose(
@@ -10484,13 +10586,13 @@ export class GameScene extends Phaser.Scene {
     );
     if (!diningSeat) {
       this.nextGuestAt = time + guestBlockedRetryMs;
-      this.updateStats("No reachable service seats");
+      this.updateStats(t("bubble.noReachableSeats"));
       return;
     }
     const availableRecipes = this.getActiveMenuRecipes();
     if (availableRecipes.length === 0) {
       this.nextGuestAt = time + guestBlockedRetryMs;
-      this.updateStats("Activate at least one recipe in the Recipe Menu");
+      this.updateStats(t("bubble.activateRecipes"));
       return;
     }
 
@@ -10502,7 +10604,7 @@ export class GameScene extends Phaser.Scene {
       this.recordRateSample(this.recentLostGuests, 1);
       this.recordRateSample(this.recentTurnaways, 1);
       this.nextGuestAt = time + guestTurnawayRetryMs;
-      this.updateStats(`Visitor wanted ${this.formatRecipeCategory(expectation.category).toLowerCase()}, but it is not on the menu`);
+      this.updateStats(t("bubble.visitorNoCategory", { category: this.formatRecipeCategory(expectation.category) }));
       return;
     }
 
@@ -10542,7 +10644,7 @@ export class GameScene extends Phaser.Scene {
 
     const entered = this.movePerson(guest.container, guest.body, guest.legs, diningSeat.seat, customerWalkPixelsPerSecond, () => {
         guest.state = "waitingToOrder";
-        guest.bubble.setText("Ready to order");
+        guest.bubble.setText(tEn("bubble.readyToOrder"));
         guest.seatedAt = this.time.now;
         guest.patience = this.getGuestPatienceSeconds(guest);
         this.drawPersonPose(guest.body, guest.legs, guest.seatedFacing, 0, true);
@@ -10553,7 +10655,7 @@ export class GameScene extends Phaser.Scene {
       this.guests = this.guests.filter((item) => item !== guest);
       this.tickets = this.tickets.filter((ticket) => ticket.guestId !== guest.id);
       this.nextGuestAt = time + guestBlockedRetryMs;
-      this.updateStats("Entrance route blocked");
+      this.updateStats(t("bubble.entranceBlocked"));
       return;
     }
 
@@ -10582,7 +10684,7 @@ export class GameScene extends Phaser.Scene {
         if (this.hasDeliveredItems(guest.id)) {
           this.cancelUndeliveredGuestTickets(guest.id);
           guest.state = "served";
-          guest.bubble.setText("Paying early");
+          guest.bubble.setText(tEn("bubble.payingEarly"));
         } else {
           this.customers.recordLost();
           this.recordRateSample(this.recentLostGuests, 1);
@@ -10616,7 +10718,7 @@ export class GameScene extends Phaser.Scene {
     if (!startedAny && this.tickets.some((item) => item.state === "queued") && this.getWorkingChefActors().some((chef) => chef.task === "idle")) {
       this.getWorkingChefActors()
         .filter((chef) => chef.task === "idle")
-        .forEach((chef) => chef.bubble.setText("Need ingredients"));
+        .forEach((chef) => chef.bubble.setText(tEn("bubble.needIngredients")));
     }
   }
 
@@ -10627,7 +10729,7 @@ export class GameScene extends Phaser.Scene {
     ticket.serviceStartedAt = undefined;
     ticket.stationIndex = stationIndex;
     chef.task = "cooking";
-    chef.bubble.setText(`Cooking ${ticket.recipe.name}`);
+    chef.bubble.setText(tEn("bubble.cookingDish", { name: contentName(ticket.recipe.name) }));
     this.startChefCookingAnimation(chef, stationIndex);
     this.time.delayedCall(
       Math.round((ticket.recipe.preparationTimeSeconds * 1000) / this.upgrades.effects().chefCookMultiplier),
@@ -10635,7 +10737,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.tickets.some((item) => item.id === ticket.id)) {
         chef.task = "idle";
         chef.busyUntil = this.time.now + 400;
-        chef.bubble.setText("Ready");
+        chef.bubble.setText(tEn("bubble.ready"));
         this.stopChefCookingAnimation(chef);
         return;
       }
@@ -10646,7 +10748,7 @@ export class GameScene extends Phaser.Scene {
         this.tickets = this.tickets.filter((item) => item.id !== ticket.id);
         chef.task = "idle";
         chef.busyUntil = this.time.now + 400;
-        chef.bubble.setText("Stored extra");
+        chef.bubble.setText(tEn("bubble.storedExtra"));
         this.stopChefCookingAnimation(chef);
         this.persistQuietly();
         return;
@@ -10672,7 +10774,7 @@ export class GameScene extends Phaser.Scene {
       this.recordRateSample(this.recentCookedDishes, 1);
       chef.task = "idle";
       chef.busyUntil = this.time.now + 400;
-      chef.bubble.setText("Ready");
+      chef.bubble.setText(tEn("bubble.ready"));
       this.stopChefCookingAnimation(chef);
     });
   }
@@ -10777,7 +10879,7 @@ export class GameScene extends Phaser.Scene {
   private cleanSeat(waiter: Actor, seat: DiningSeat): void {
     this.cleaningSeatUids.add(seat.seatUid);
     waiter.task = "cleaning";
-    waiter.bubble.setText("Cleaning");
+    waiter.bubble.setText(tEn("bubble.cleaning"));
     this.requestFurnitureRender("cleaning reserved");
     this.moveActor(waiter, seat.cleanupSpot, () => {
       this.time.delayedCall(cleaningSeconds * 1000, () => {
@@ -10786,7 +10888,7 @@ export class GameScene extends Phaser.Scene {
         this.showWaiterCarriedPlate(waiter, true, "dirty");
         waiter.task = "cleaning";
         waiter.busyUntil = this.time.now + 2000;
-        waiter.bubble.setText("Taking dishes");
+        waiter.bubble.setText(tEn("bubble.takingDishes"));
         this.requestFurnitureRender("seat cleaned");
         this.moveActor(
           waiter,
@@ -10811,12 +10913,12 @@ export class GameScene extends Phaser.Scene {
   private dropOrWashDirtyDish(waiter: Actor): void {
     if (this.hasManualSink() && !this.hasDishwasher()) {
       waiter.task = "cleaning";
-      waiter.bubble.setText("Washing");
+      waiter.bubble.setText(tEn("bubble.washing"));
       this.time.delayedCall(manualDishwashingSeconds * 1000, () => {
         this.showWaiterCarriedPlate(waiter, false);
         waiter.task = "idle";
         waiter.busyUntil = this.time.now + 300;
-        waiter.bubble.setText("Ready");
+        waiter.bubble.setText(tEn("bubble.ready"));
         this.moveActor(waiter, this.getWaiterHomePoint());
       });
       return;
@@ -10828,14 +10930,14 @@ export class GameScene extends Phaser.Scene {
     this.runDishwasher();
     waiter.task = "idle";
     waiter.busyUntil = this.time.now + 300;
-    waiter.bubble.setText("Ready");
+    waiter.bubble.setText(tEn("bubble.ready"));
     this.moveActor(waiter, this.getWaiterHomePoint());
   }
 
   private washStoredDishesAtSink(waiter: Actor): void {
     this.manualDishwashingBusy = true;
     waiter.task = "cleaning";
-    waiter.bubble.setText("Washing dishes");
+    waiter.bubble.setText(tEn("bubble.washingDishes"));
     this.moveActor(waiter, this.getDishStationPoint("sink"), () => {
       this.showWaiterCarriedPlate(waiter, true, "dirty");
       this.time.delayedCall(manualDishwashingSeconds * 1000, () => {
@@ -10844,14 +10946,14 @@ export class GameScene extends Phaser.Scene {
         this.showWaiterCarriedPlate(waiter, false);
         waiter.task = "idle";
         waiter.busyUntil = this.time.now + 300;
-        waiter.bubble.setText("Ready");
+        waiter.bubble.setText(tEn("bubble.ready"));
         this.requestFurnitureRender("sink washed dish");
         this.moveActor(waiter, this.getWaiterHomePoint());
         this.persistQuietly();
       });
     }, false, () => {
       this.manualDishwashingBusy = false;
-      waiter.bubble.setText("Blocked");
+      waiter.bubble.setText(tEn("bubble.blocked"));
     });
   }
 
@@ -11001,9 +11103,9 @@ export class GameScene extends Phaser.Scene {
       item.serviceStartedAt = this.time.now;
     });
     waiter.task = "serving";
-    waiter.bubble.setText("Taking order");
+    waiter.bubble.setText(tEn("bubble.takingOrder"));
     this.moveActor(waiter, guest.serviceSpot, () => {
-      guest.bubble.setText(`Ordered ${guest.orderItems.length} item${guest.orderItems.length === 1 ? "" : "s"}`);
+      guest.bubble.setText(guest.orderItems.length === 1 ? tEn("bubble.orderedOne") : tEn("bubble.orderedMany", { count: guest.orderItems.length }));
       this.time.delayedCall(orderHandOffSeconds * 1000, () => {
         this.routeOrderAfterTaking(waiter, guest);
       });
@@ -11021,7 +11123,7 @@ export class GameScene extends Phaser.Scene {
     if (orderTickets.length === 0 || guest.state === "leaving") {
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 250;
-      waiter.bubble.setText("Ready");
+      waiter.bubble.setText(tEn("bubble.ready"));
       return;
     }
 
@@ -11045,7 +11147,7 @@ export class GameScene extends Phaser.Scene {
     const readyTicket = this.tickets.find((item) => item.guestId === guest.id && item.state === "ready" && item.preferredWaiterId === waiter.id);
     const remainingTickets = this.tickets.filter((item) => item.guestId === guest.id && item.state === "serving");
     if (readyTicket && remainingTickets.length === 0) {
-      waiter.bubble.setText("Pickup ready plate");
+      waiter.bubble.setText(tEn("bubble.pickupReadyPlate"));
       this.deliverReadyTicket(waiter, guest, readyTicket);
       return;
     }
@@ -11058,7 +11160,7 @@ export class GameScene extends Phaser.Scene {
 
     waiter.task = "idle";
     waiter.busyUntil = this.time.now + 250;
-    waiter.bubble.setText("Ready");
+    waiter.bubble.setText(tEn("bubble.ready"));
   }
 
   private deliverReadyTicket(
@@ -11076,7 +11178,7 @@ export class GameScene extends Phaser.Scene {
       ticket.readyAt = this.time.now;
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 350;
-      waiter.bubble.setText("Pickup blocked");
+      waiter.bubble.setText(tEn("bubble.pickupBlocked"));
       return;
     }
 
@@ -11085,15 +11187,15 @@ export class GameScene extends Phaser.Scene {
     ticket.serviceKind = "food";
     ticket.serviceStartedAt = this.time.now;
     waiter.task = "serving";
-    waiter.bubble.setText("Pickup");
+    waiter.bubble.setText(tEn("bubble.pickup"));
     this.moveActor(waiter, pickupPoint, () => {
       ticket.readyPlate?.destroy();
       delete ticket.readyPlate;
       this.showWaiterCarriedPlate(waiter, true);
-      waiter.bubble.setText("Serving");
+      waiter.bubble.setText(tEn("bubble.serving"));
       const preferredMarker = ticket.preferredWaiterId === waiter.id ? "" : " (handoff)";
       if (preferredMarker) {
-        waiter.bubble.setText(`Serving${preferredMarker}`);
+        waiter.bubble.setText(`${tEn("bubble.serving")}${preferredMarker}`);
       }
       this.moveActor(waiter, guest.serviceSpot, () => {
         ticket.state = "delivered";
@@ -11108,7 +11210,7 @@ export class GameScene extends Phaser.Scene {
         this.showWaiterCarriedPlate(waiter, false);
         this.recordRateSample(this.recentDeliveredDishes, 1);
         const remainingItems = this.tickets.filter((item) => item.guestId === guest.id && item.state !== "delivered").length;
-        guest.bubble.setText(remainingItems > 0 ? `Got ${ticket.recipe.name}` : "Eating");
+        guest.bubble.setText(remainingItems > 0 ? tEn("bubble.gotDish", { name: contentName(ticket.recipe.name) }) : tEn("bubble.eating"));
         this.requestFurnitureRender("dish delivered");
         if (remainingItems === 0) {
           this.startGuestEating(guest);
@@ -11117,13 +11219,13 @@ export class GameScene extends Phaser.Scene {
           if (this.areAllGuestItemsDelivered(guest.id)) {
             waiter.task = "idle";
             waiter.busyUntil = this.time.now + 250;
-            waiter.bubble.setText("Ready");
+            waiter.bubble.setText(tEn("bubble.ready"));
             return;
           }
 
           waiter.task = "idle";
           waiter.busyUntil = this.time.now + 250;
-          waiter.bubble.setText("Ready");
+          waiter.bubble.setText(tEn("bubble.ready"));
         });
       }, false, () => {
         ticket.state = "ready";
@@ -11149,7 +11251,7 @@ export class GameScene extends Phaser.Scene {
   private startGuestEating(guest: Guest): void {
     guest.state = "paying";
     guest.finishedEating = false;
-    guest.bubble.setText("Eating");
+    guest.bubble.setText(tEn("bubble.eating"));
     this.startGuestEatingAnimation(guest);
     this.time.delayedCall(
       Math.round(eatingSecondsPerVisit * 1000 * getCustomerArchetype(guest.archetypeId).eatingTimeMultiplier),
@@ -11161,7 +11263,7 @@ export class GameScene extends Phaser.Scene {
       this.stopGuestEatingAnimation(guest);
       guest.finishedEating = true;
       guest.state = "served";
-      guest.bubble.setText("Ready to pay");
+      guest.bubble.setText(tEn("bubble.readyToPay"));
       this.requestFurnitureRender("guest finished eating");
     });
   }
@@ -11260,7 +11362,7 @@ export class GameScene extends Phaser.Scene {
     if (guest.state === "leaving" || orderTickets.length === 0) {
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 250;
-      waiter.bubble.setText("Ready");
+      waiter.bubble.setText(tEn("bubble.ready"));
       return;
     }
 
@@ -11275,7 +11377,7 @@ export class GameScene extends Phaser.Scene {
         guest.state = "waitingToOrder";
         waiter.task = "idle";
         waiter.busyUntil = this.time.now + 500;
-        waiter.bubble.setText("Need chef");
+        waiter.bubble.setText(tEn("bubble.needChef"));
         return;
       }
 
@@ -11291,19 +11393,19 @@ export class GameScene extends Phaser.Scene {
         guest.patience = Math.max(guest.patience, this.getGuestPatienceSeconds(guest) * 0.75);
         waiter.task = "idle";
         waiter.busyUntil = this.time.now + 300;
-        waiter.bubble.setText("Order queued");
+        waiter.bubble.setText(tEn("bubble.orderQueued"));
         return;
       }
 
-      waiter.bubble.setText("Chef busy");
+      waiter.bubble.setText(tEn("bubble.chefBusy"));
       this.time.delayedCall(650, () => this.handoffOrderToChef(waiter, guest));
       return;
     }
 
     this.snapChefToStationIfNeeded(availableChef.chef, availableChef.station, availableChef.stationIndex);
     availableChef.chef.task = "receivingOrder";
-    availableChef.chef.bubble.setText("Receiving order");
-    waiter.bubble.setText("Give order");
+    availableChef.chef.bubble.setText(tEn("bubble.receivingOrder"));
+    waiter.bubble.setText(tEn("bubble.giveOrder"));
     this.moveActor(waiter, availableChef.handoffPoint, () => {
       orderTickets.forEach((item) => {
         item.state = "queued";
@@ -11314,13 +11416,13 @@ export class GameScene extends Phaser.Scene {
       guest.state = "waitingForFood";
       guest.orderedAt = this.time.now;
       guest.patience = Math.max(guest.patience, this.getGuestPatienceSeconds(guest) * 0.75);
-      availableChef.chef.bubble.setText("Order in");
+      availableChef.chef.bubble.setText(tEn("bubble.orderIn"));
       availableChef.chef.task = "idle";
       availableChef.chef.busyUntil = this.time.now + 150;
       this.drawPersonPose(availableChef.chef.body, availableChef.chef.legs, "up", 0, false);
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 300;
-      waiter.bubble.setText("Ready");
+      waiter.bubble.setText(tEn("bubble.ready"));
       this.persistQuietly();
     }, false, () => {
       orderTickets.forEach((item) => {
@@ -11331,7 +11433,7 @@ export class GameScene extends Phaser.Scene {
       guest.state = "waitingToOrder";
       availableChef.chef.task = "idle";
       availableChef.chef.busyUntil = this.time.now + 300;
-      availableChef.chef.bubble.setText("Ready");
+      availableChef.chef.bubble.setText(tEn("bubble.ready"));
     });
   }
 
@@ -11439,7 +11541,7 @@ export class GameScene extends Phaser.Scene {
           this.showWaiterCarriedPlate(waiter, false);
           waiter.task = "idle";
           waiter.busyUntil = time + 350;
-          waiter.bubble.setText("Retry serving");
+          waiter.bubble.setText(tEn("bubble.retryServing"));
         }
       });
   }
@@ -11497,7 +11599,7 @@ export class GameScene extends Phaser.Scene {
       this.showWaiterCarriedPlate(waiter, false);
       waiter.task = "idle";
       waiter.busyUntil = time + 250;
-      waiter.bubble.setText("Order queued");
+      waiter.bubble.setText(tEn("bubble.orderQueued"));
     });
   }
 
@@ -11514,7 +11616,7 @@ export class GameScene extends Phaser.Scene {
 
       guest.state = "served";
       this.clearGuestPaymentLock(guest);
-      guest.bubble.setText("Ready to pay");
+      guest.bubble.setText(tEn("bubble.readyToPay"));
     });
   }
 
@@ -11855,16 +11957,16 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      this.setTextIfChanged(chef.bubble, index < activeChefs ? "Ready" : "Need stove");
+      this.setTextIfChanged(chef.bubble, index < activeChefs ? tEn("bubble.ready") : tEn("bubble.needStove"));
     });
 
     this.getActiveStaffActors("waiter")
       .filter((actor) => actor.task === "idle")
-      .forEach((waiter) => this.setTextIfChanged(waiter.bubble, "Ready"));
+      .forEach((waiter) => this.setTextIfChanged(waiter.bubble, tEn("bubble.ready")));
 
     this.getActiveStaffActors("errand")
       .filter((actor) => actor.task === "idle")
-      .forEach((errandBoy) => this.setTextIfChanged(errandBoy.bubble, "Ready"));
+      .forEach((errandBoy) => this.setTextIfChanged(errandBoy.bubble, tEn("bubble.ready")));
   }
 
   private getNextActionLabel(
@@ -11877,26 +11979,26 @@ export class GameScene extends Phaser.Scene {
     shoppingOutput: number,
   ): string {
     if (dishDemand === 0) {
-      return "Add usable table seats";
+      return t("diagnostic.addSeats");
     }
 
     if (ingredientConsumption > shoppingOutput) {
-      return "Raise stock target or hire errand";
+      return t("diagnostic.raiseStock");
     }
 
     if (chefOutput < dishDemand && chefOutput <= waiterOutput) {
-      return "Add chef + stove";
+      return t("diagnostic.addChefStove");
     }
 
     if (waiterOutput < dishDemand && waiterOutput < chefOutput) {
-      return "Hire waiter or shorten routes";
+      return t("diagnostic.hireWaiter");
     }
 
     if (diningSeats <= spawnRate) {
-      return "Add tables/chairs";
+      return t("diagnostic.addTables");
     }
 
-    return "Improve decor/menu";
+    return t("diagnostic.improveDecor");
   }
 
   private getAverageWaiterServiceSeconds(expectedItemsPerCustomer = this.getExpectedDishesPerCustomer()): number {
@@ -12028,9 +12130,9 @@ export class GameScene extends Phaser.Scene {
 
     const exitPoint = this.getRestaurantExitPoint();
     const doorPoint = this.getRestaurantDoorPoint();
-    const visitor = this.createVisitorActor(exitPoint.x, exitPoint.y, `Wanted ${this.formatRecipeCategory(expectation.category).toLowerCase()}`);
+    const visitor = this.createVisitorActor(exitPoint.x, exitPoint.y, tEn("bubble.wantedCategory", { category: this.formatRecipeCategory(expectation.category) }));
     const reachedDoor = this.movePerson(visitor.container, visitor.body, visitor.legs, doorPoint, customerWalkPixelsPerSecond, () => {
-      visitor.bubble.setText(`No ${this.formatRecipeCategory(expectation.category).toLowerCase()}`);
+      visitor.bubble.setText(tEn("bubble.noCategory", { category: this.formatRecipeCategory(expectation.category) }));
       this.time.delayedCall(600, () => {
         const left = this.movePerson(
           visitor.container,
@@ -12120,10 +12222,10 @@ export class GameScene extends Phaser.Scene {
 
   private getOrderSummary(orderItems: RecipeDefinition[]): string {
     if (orderItems.length === 1) {
-      return orderItems[0].name;
+      return contentName(orderItems[0].name);
     }
 
-    return `${orderItems.length} items`;
+    return tEn("bubble.itemsCount", { count: orderItems.length });
   }
 
   private getIdealExperienceSeconds(seat: DiningSeat, orderItems: RecipeDefinition[]): number {
@@ -12267,7 +12369,7 @@ export class GameScene extends Phaser.Scene {
   private getInNeedIngredientLines(): string[] {
     const trackedIngredients = this.getAutoShopIngredientIds();
     if (trackedIngredients.size === 0) {
-      return ["No active recipes to track."];
+      return [t("needs.noActiveRecipes")];
     }
 
     const shortages = this.cooking.getPantry()
@@ -12282,15 +12384,21 @@ export class GameScene extends Phaser.Scene {
         };
       })
       .filter((item) => item.shortage > 0)
-      .sort((a, b) => b.shortage - a.shortage || a.ingredient.name.localeCompare(b.ingredient.name));
+      .sort((a, b) => b.shortage - a.shortage || this.compareContentNames(a.ingredient.name, b.ingredient.name));
 
     if (shortages.length === 0) {
-      return ["All active-menu ingredients are at target."];
+      return [t("needs.allAtTarget")];
     }
 
     return shortages.map(({ ingredient, inTransit, shortage }) => {
-      const transitText = inTransit > 0 ? `, way ${inTransit}` : "";
-      return `${this.getIngredientIcon(ingredient.id)} ${ingredient.name}: need ${shortage} (have ${ingredient.quantity}${transitText})`;
+      const transitText = inTransit > 0 ? t("needs.transitSuffix", { count: inTransit }) : "";
+      return t("needs.needLine", {
+        icon: this.getIngredientIcon(ingredient.id),
+        name: contentName(ingredient.name),
+        need: shortage,
+        have: ingredient.quantity,
+        transit: transitText,
+      });
     });
   }
 
@@ -12302,7 +12410,7 @@ export class GameScene extends Phaser.Scene {
     if (guest.state === "paying" || guest.state === "leaving") {
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 250;
-      waiter.bubble.setText("Ready");
+      waiter.bubble.setText(tEn("bubble.ready"));
       return;
     }
 
@@ -12313,8 +12421,8 @@ export class GameScene extends Phaser.Scene {
       this.clearGuestPaymentLock(guest);
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 250;
-      waiter.bubble.setText("No bill");
-      guest.bubble.setText("Waiting for bill");
+      waiter.bubble.setText(tEn("bubble.noBill"));
+      guest.bubble.setText(tEn("bubble.waitingForBill"));
       return;
     }
 
@@ -12322,7 +12430,7 @@ export class GameScene extends Phaser.Scene {
     guest.lockedPaymentDue = lockedPayment;
     guest.lockedPaymentTicketIds = lockedTicketIds;
     waiter.task = "payment";
-    waiter.bubble.setText("Payment");
+    waiter.bubble.setText(tEn("bubble.payment"));
     const paymentPoint = this.getPaymentPoint();
     const waiterStart = new Phaser.Math.Vector2(waiter.container.x, waiter.container.y);
     const guestStart = new Phaser.Math.Vector2(guest.container.x, guest.container.y);
@@ -12331,20 +12439,20 @@ export class GameScene extends Phaser.Scene {
       this.clearGuestPaymentLock(guest);
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 500;
-      waiter.bubble.setText("Payment blocked");
+      waiter.bubble.setText(tEn("bubble.paymentBlocked"));
       return;
     }
 
-    guest.bubble.setText("To cashier");
+    guest.bubble.setText(tEn("bubble.toCashier"));
     const guestMoving = this.movePerson(guest.container, guest.body, guest.legs, paymentPoint, customerWalkPixelsPerSecond, () => {
-      guest.bubble.setText("Paying");
+      guest.bubble.setText(tEn("bubble.paying"));
     }, false, false);
     if (!guestMoving) {
       guest.state = "served";
       this.clearGuestPaymentLock(guest);
       waiter.task = "idle";
       waiter.busyUntil = this.time.now + 500;
-      waiter.bubble.setText("Payment blocked");
+      waiter.bubble.setText(tEn("bubble.paymentBlocked"));
       return;
     }
 
@@ -12353,7 +12461,7 @@ export class GameScene extends Phaser.Scene {
         if (guest.state === "leaving") {
           waiter.task = "idle";
           waiter.busyUntil = this.time.now + 250;
-          waiter.bubble.setText("Ready");
+          waiter.bubble.setText(tEn("bubble.ready"));
           return;
         }
 
@@ -12363,8 +12471,8 @@ export class GameScene extends Phaser.Scene {
           this.clearGuestPaymentLock(guest);
           waiter.task = "idle";
           waiter.busyUntil = this.time.now + 250;
-          waiter.bubble.setText("No bill");
-          guest.bubble.setText("Ready to pay");
+          waiter.bubble.setText(tEn("bubble.noBill"));
+          guest.bubble.setText(tEn("bubble.readyToPay"));
           return;
         }
 
@@ -12384,7 +12492,7 @@ export class GameScene extends Phaser.Scene {
           y: guest.container.y,
         });
         this.updateStats(
-          tip > 0 ? `Payment collected +$${bill} (+$${tip} tip)` : `Payment collected +$${bill}`,
+          tip > 0 ? t("stats.paymentCollectedTip", { money: formatMoney(bill), tip: formatMoney(tip) }) : t("stats.paymentCollected", { money: formatMoney(bill) }),
         );
         this.customers.recordServed();
         this.recordRateSample(this.recentServedGuests, 1);
@@ -12402,7 +12510,7 @@ export class GameScene extends Phaser.Scene {
       this.stopPersonMotion(guest.container, guest.body);
       guest.state = "served";
       this.clearGuestPaymentLock(guest);
-      waiter.bubble.setText("Payment blocked");
+      waiter.bubble.setText(tEn("bubble.paymentBlocked"));
     });
   }
 
@@ -12614,7 +12722,7 @@ export class GameScene extends Phaser.Scene {
       .setStyle({
         color: "#3b2a21",
         backgroundColor: "#fff8e8",
-        fontFamily: "Arial, Helvetica, sans-serif",
+        fontFamily: FONTS.ui,
         fontSize: "12px",
         padding: { x: 9, y: 7 },
       })
@@ -12658,20 +12766,18 @@ export class GameScene extends Phaser.Scene {
     const activeRecipes = this.getActiveMenuRecipes().length;
 
     return [
-      `Recent rating: ${average.toFixed(1)}/5`,
-      `Votes: ${votes}/${maxRatingHistory} recent`,
-      `Positive: ${positive} | Neutral: ${three} | Negative: ${negative}`,
-      `5 star ${five}   4 star ${four}   3 star ${three}`,
-      `2 star ${two}   1 star ${one}`,
+      t("rating.tooltipTitle", { avg: average.toFixed(1) }),
+      t("rating.votes", { votes, max: maxRatingHistory }),
+      t("rating.breakdown", { positive, neutral: three, negative }),
+      t("rating.starsHigh", { five, four, three }),
+      t("rating.starsLow", { two, one }),
       "",
-      "What affects it now:",
-      `Decor ${decorationScore}/5 | Attract ${attractiveness}/5`,
-      `Clean seats ${cleanSeats} | Active dishes ${activeRecipes}`,
-      `Served today ${this.customers.getDailyServed()} | Lost today ${this.customers.getDailyLost()}`,
+      t("rating.affects"),
+      t("rating.affectsValues", { decor: `${decorationScore}/5`, attract: `${attractiveness}/5` }),
+      t("rating.affectsSeats", { seats: cleanSeats, dishes: activeRecipes }),
+      t("rating.affectsToday", { served: this.customers.getDailyServed(), lost: this.customers.getDailyLost() }),
       "",
-      negative > positive
-        ? "Improve service speed, stock, clean seats, and decor to push new votes upward."
-        : "Keep service quick and keep upgrading decor to protect the rating.",
+      negative > positive ? t("rating.improveTip") : t("rating.protectTip"),
     ].join("\n");
   }
 
@@ -12708,7 +12814,7 @@ export class GameScene extends Phaser.Scene {
     if (!moved) {
       actor.task = "idle";
       actor.busyUntil = this.time.now + 600;
-      actor.bubble.setText("Blocked");
+      actor.bubble.setText(tEn("bubble.blocked"));
       onFail?.();
     }
     return moved;
@@ -13270,7 +13376,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getIngredientName(ingredientId: string): string {
-    return this.cooking.getIngredientName(ingredientId);
+    return contentName(this.cooking.getIngredientName(ingredientId));
   }
 
   private getIngredientQuantity(ingredientId: string): number {
@@ -13296,30 +13402,30 @@ export class GameScene extends Phaser.Scene {
 
     const itemCount = this.getErrandOrderItemCount();
     if (itemCount >= maxErrandOrderItems) {
-      this.updateStats(`Errand order is full (${maxErrandOrderItems} items max)`);
+      this.updateStats(t("errand.full", { max: maxErrandOrderItems }));
       return;
     }
 
     const added = Math.min(amount, maxErrandOrderItems - itemCount);
     this.cooking.queueErrand(ingredientId, added);
-    this.updateStats(`${ingredient.name} +${added} added to errand order`);
+    this.updateStats(t("errand.added", { name: contentName(ingredient.name), added }));
   }
 
   private clearErrandOrder(): void {
     this.cooking.clearErrandOrder();
-    this.updateStats("Errand order cleared");
+    this.updateStats(t("errand.cleared"));
   }
 
   private toggleAutoShop(): void {
     this.autoShopEnabled = !this.autoShopEnabled;
     this.persistQuietly();
-    this.updateStats(this.autoShopEnabled ? "Auto-shop on: errand helpers will keep restocking." : "Auto-shop off");
+    this.updateStats(this.autoShopEnabled ? t("errand.autoShopOn") : t("errand.autoShopOff"));
   }
 
   private adjustStockTarget(delta: number): void {
     this.stockTarget = Phaser.Math.Clamp(this.stockTarget + delta, 3, 200);
     this.persistQuietly();
-    this.updateStats(`Auto-shop stock target set to ${this.stockTarget}`);
+    this.updateStats(t("errand.targetSet", { target: this.stockTarget }));
   }
 
   private runAutoShop(): void {
@@ -13343,7 +13449,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.spendMoney(cost, "ingredients")) {
         return;
       }
-      if (!this.sendErrand(order, "Auto-shop")) {
+      if (!this.sendErrand(order, t("stockPanel.autoShop"))) {
         this.earnMoney(cost, "refund");
         this.economy.refundDailyExpenses(cost);
       }
@@ -13353,13 +13459,13 @@ export class GameScene extends Phaser.Scene {
   private sendErrandOrder(): void {
     const itemCount = this.getErrandOrderItemCount();
     if (itemCount === 0) {
-      this.updateStats("Add ingredients before sending an errand");
+      this.updateStats(t("errand.emptyOrder"));
       return;
     }
 
     const cost = itemCount * this.getIngredientUnitCost();
     if (!this.spendMoney(cost, "ingredients")) {
-      this.updateStats(`Need $${cost} for this errand order`);
+      this.updateStats(t("errand.needMoney", { money: formatMoney(cost) }));
       return;
     }
 
@@ -13451,13 +13557,13 @@ export class GameScene extends Phaser.Scene {
 
   private getErrandOrderSummary(): string {
     const inTransitCount = this.cooking.getTotalErrandInTransit();
-    return `In transit: ${inTransitCount} items`;
+    return t("errand.inTransit", { count: inTransitCount });
   }
 
-  private sendErrand(order: Array<{ ingredientId: string; quantity: number }>, source = "Errand"): boolean {
+  private sendErrand(order: Array<{ ingredientId: string; quantity: number }>, source = t("errand.title")): boolean {
     const errandBoy = this.getActiveStaffActors("errand").find((actor) => actor.task === "idle");
     if (!errandBoy) {
-      this.updateStats("Hire or wait for an errand helper");
+      this.updateStats(t("errand.needHelper"));
       return false;
     }
 
@@ -13473,11 +13579,11 @@ export class GameScene extends Phaser.Scene {
       const refund = itemCount * this.getIngredientUnitCost();
       this.earnMoney(refund, "refund");
       this.economy.refundDailyExpenses(refund);
-      this.updateStats(`${source} blocked and refunded`);
+      this.updateStats(t("errand.blockedRefunded", { source }));
     };
 
     errandBoy.task = "errand";
-    errandBoy.bubble.setText(`Shopping x${itemCount}`);
+    errandBoy.bubble.setText(tEn("errand.shopping", { count: itemCount }));
     const departureCounterPoint = this.getGroceryCounterPoint();
     this.moveActor(errandBoy, departureCounterPoint, () => {
       const exitPoint = this.getRestaurantExitPoint();
@@ -13493,28 +13599,28 @@ export class GameScene extends Phaser.Scene {
           errandBoy.container.setAlpha(1);
           const returnPoint = this.getRestaurantExitPoint();
           errandBoy.container.setPosition(returnPoint.x, returnPoint.y);
-          errandBoy.bubble.setText("Delivered");
+          errandBoy.bubble.setText(tEn("errand.deliveredShort"));
           const deliveryCounterPoint = this.getGroceryCounterPoint();
           this.moveActor(errandBoy, deliveryCounterPoint, () => {
             this.moveActor(errandBoy, this.getErrandHomePoint(), () => {
               errandBoy.task = "idle";
-              errandBoy.bubble.setText("Ready");
+              errandBoy.bubble.setText(tEn("bubble.ready"));
               this.persistQuietly();
-              this.updateStats(`${source} delivered ${itemCount} items`);
+              this.updateStats(t("errand.deliveredCount", { source, count: itemCount }));
             });
           }, true, () => {
             errandBoy.task = "idle";
             errandBoy.busyUntil = this.time.now + 300;
-            errandBoy.bubble.setText("Delivered");
+            errandBoy.bubble.setText(tEn("errand.deliveredShort"));
             this.persistQuietly();
-            this.updateStats(`${source} delivered ${itemCount} items`);
+            this.updateStats(t("errand.deliveredCount", { source, count: itemCount }));
           });
         });
       }, true, cancelTransitAndRefund);
     }, false, cancelTransitAndRefund);
 
     this.persistQuietly();
-    this.updateStats(`${source} sent for ${itemCount} items`);
+    this.updateStats(t("errand.sent", { source, count: itemCount }));
     return true;
   }
 
@@ -13534,22 +13640,22 @@ export class GameScene extends Phaser.Scene {
     if (this.cooking.isOnMenu(recipeId)) {
       const result = this.cooking.removeFromMenu(recipeId);
       if (result === "lastItem") {
-        this.updateStats("Keep at least one dish active");
+        this.updateStats(t("recipes.keepOneActive"));
         return;
       }
       this.persistQuietly();
-      this.updateStats(`${recipe.name} removed from active menu`);
+      this.updateStats(t("recipes.removedFromMenu", { name: contentName(recipe.name) }));
       return;
     }
 
     if (this.getActiveRecipeCountForCategory(recipe.category) >= 3) {
-      this.updateStats(`Only 3 active ${this.formatRecipeCategory(recipe.category)} recipes allowed`);
+      this.updateStats(t("recipes.menuFull", { category: this.formatRecipeCategory(recipe.category) }));
       return;
     }
 
     this.cooking.addToMenu(recipeId);
     this.persistQuietly();
-    this.updateStats(`${recipe.name} added to active menu`);
+    this.updateStats(t("recipes.addedToMenu", { name: contentName(recipe.name) }));
   }
 
   private getActiveRecipeCountForCategory(category: RecipeDefinition["category"]): number {
@@ -13859,6 +13965,23 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  /** Locale-aware sort for display names (Chinese orders by pinyin). */
+  private compareContentNames(a: string, b: string): number {
+    return contentName(a).localeCompare(contentName(b), isChinese() ? "zh-CN" : "en");
+  }
+
+  private getModeLabel(): string {
+    const keys: Record<InteractionMode, MessageKey> = {
+      cook: "mode.cook",
+      build: "mode.build",
+      move: "mode.move",
+      remove: "mode.sell",
+      seat: "mode.seat",
+    };
+    const label = t(keys[this.mode]);
+    return isChinese() ? label : label.toUpperCase();
+  }
+
   private updateStats(message?: string): void {
     const now = this.time.now;
     if (!message && now - this.lastStatsUpdateAt < statsRefreshMs) {
@@ -13934,65 +14057,70 @@ export class GameScene extends Phaser.Scene {
     this.setTextIfChanged(
       this.statsText,
       [
-        `Money: $${this.economy.getMoney()}`,
-        `Rating: ${averageRating.toFixed(1)}/5`,
-        `Decor: ${decorationScore}/5`,
-        `Attract: ${attractiveness}/5`,
-        `Guests: ${activeGuests}`,
-        `Seats: ${occupiedSeats}/${diningSeats}`,
-        `Open clean: ${this.getAvailableDiningSeats().length}`,
+        t("stats.money", { money: formatMoney(this.economy.getMoney()) }),
+        t("stats.rating", { rating: `${averageRating.toFixed(1)}/5` }),
+        t("stats.decor", { score: `${decorationScore}/5` }),
+        t("stats.attract", { score: `${attractiveness}/5` }),
+        t("stats.guests", { count: activeGuests }),
+        t("stats.seats", { occupied: occupiedSeats, total: diningSeats }),
+        t("stats.openClean", { count: this.getAvailableDiningSeats().length }),
       ].join("\n"),
     );
     this.setTextIfChanged(
       this.statsTextRight,
       [
-        `Flow: ${actualGuestEntries}/min`,
-        `Public: ${this.restaurantOpen ? "Open" : "Closed"}`,
-        `Lost: ${this.customers.getDailyLost()}`,
-        `Tables: ${tables}`,
-        `Playtime: ${this.formatPlaytime(this.dayCycle.getTotalPlaySeconds())}`,
-        `Rent: $${this.getDailyRent()} in ${this.getRentHoursRemaining().toFixed(1)}h`,
-        `Space: ${this.expansionLevel}/${maxExpansionLevel}`,
-        `Disabled: ${disabledSeats}`,
+        t("stats.flow", { rate: actualGuestEntries }),
+        this.restaurantOpen ? t("stats.publicOpen") : t("stats.publicClosed"),
+        t("stats.lost", { count: this.customers.getDailyLost() }),
+        t("stats.tables", { count: tables }),
+        t("stats.playtime", { time: this.formatPlaytime(this.dayCycle.getTotalPlaySeconds()) }),
+        t("stats.rent", { money: formatMoney(this.getDailyRent()), hours: this.getRentHoursRemaining().toFixed(1) }),
+        t("stats.space", { used: this.expansionLevel, max: maxExpansionLevel }),
+        t("stats.disabled", { count: disabledSeats }),
       ].join("\n"),
     );
     this.updateRatingWidget();
-    this.setTextIfChanged(this.publicToggleButton, this.restaurantOpen ? "Close" : "Open");
+    this.setTextIfChanged(this.publicToggleButton, this.restaurantOpen ? t("buttons.closePublic") : t("buttons.open"));
     this.publicToggleButton.setBackgroundColor(this.restaurantOpen ? "#5f7f5f" : "#8f6251");
-    this.setTextIfChanged(this.modeText, `Mode: ${this.mode.toUpperCase()}`);
+    this.setTextIfChanged(this.modeText, t("actionPanel.modeLine", { mode: this.getModeLabel() }));
     this.setTextIfChanged(
       this.selectedText,
       selected || placedSelectionDefinition
-        ? `Selected: ${(selected ?? placedSelectionDefinition)?.name} R${selectionRotation} (${(selected ?? placedSelectionDefinition)?.size.width}x${(selected ?? placedSelectionDefinition)?.size.height})`
-        : "Selected: none",
+        ? t("actionPanel.selectedLine", {
+          name: contentName((selected ?? placedSelectionDefinition)!.name),
+          rotation: selectionRotation,
+          width: (selected ?? placedSelectionDefinition)!.size.width,
+          height: (selected ?? placedSelectionDefinition)!.size.height,
+        })
+        : t("actionPanel.selectedNone"),
     );
     this.setTextIfChanged(
       this.staffTeamText,
       [
-        `Chefs: ${this.staff.chefs} (${busyChefs} busy, ${freeChefs} free)`,
-        `Cook stations: ${activeChefs}/${stoves} staffed`,
-        `Waiters: ${this.staff.waiters} (${busyWaiters} busy, ${freeWaiters} free)`,
-        `Errand helpers: ${errandStaffCount} (${busyErrandBoys} busy, ${freeErrandBoys} free)`,
-        `Payroll: $${this.getPayrollPerMinute()}/min`,
+        t("stats.chefs", { count: this.staff.chefs, busy: busyChefs, free: freeChefs }),
+        t("stats.cookStations", { active: activeChefs, stoves }),
+        t("stats.waiters", { count: this.staff.waiters, busy: busyWaiters, free: freeWaiters }),
+        t("stats.errands", { count: errandStaffCount, busy: busyErrandBoys, free: freeErrandBoys }),
+        t("stats.payroll", { money: formatMoney(this.getPayrollPerMinute()) }),
       ].join("\n"),
     );
     this.setTextIfChanged(
       this.staffServiceText,
       [
-        `Guests inside: ${activeGuests}`,
-        `Cooking: ${actualCookedDishes}/min (cap ${chefOutput})`,
-        `Serving: ${actualDeliveredDishes}/min (cap ${waiterOutput})`,
-        `Demand: ${actualCustomerDemand}/min`,
-        `Avg service: ${averageServiceSeconds.toFixed(0)}s`,
+        t("stats.guestsInside", { count: activeGuests }),
+        t("stats.cooking", { rate: actualCookedDishes, cap: chefOutput }),
+        t("stats.serving", { rate: actualDeliveredDishes, cap: waiterOutput }),
+        t("stats.demand", { rate: actualCustomerDemand }),
+        t("stats.avgService", { seconds: averageServiceSeconds.toFixed(0) }),
       ].join("\n"),
     );
     this.setTextIfChanged(
       this.staffStockText,
       [
-        `Use: ${actualIngredientConsumption}/min`,
-        `Restock: ${actualRestockOutput}/min`,
-        `Shopping needed: ${restockNeed}`,
-        `On the way: ${inTransitIngredients}`,
+        t("stats.use", { rate: actualIngredientConsumption }),
+        t("stats.restock", { rate: actualRestockOutput }),
+        t("stats.shoppingNeeded", { count: restockNeed }),
+        t("stats.onTheWay", { count: inTransitIngredients }),
       ].join("\n"),
     );
     this.refreshStaffActionLabels();
@@ -14000,16 +14128,16 @@ export class GameScene extends Phaser.Scene {
     if (fullRefresh) {
       this.refreshCatalogUi();
     }
-    this.setTextIfChanged(this.autoShopButton, this.autoShopEnabled ? "Auto-Shop On" : "Auto-Shop Off");
+    this.setTextIfChanged(this.autoShopButton, this.autoShopEnabled ? t("autoShop.on") : t("autoShop.off"));
     this.autoShopButton.setBackgroundColor(this.autoShopEnabled ? "#5f7f5f" : "#8f6251");
-    this.setTextIfChanged(this.stockTargetText, `Max ${this.stockTarget}`);
+    this.setTextIfChanged(this.stockTargetText, t("autoShop.maxTarget", { target: this.stockTarget }));
     this.setTextIfChanged(this.errandOrderText, this.getErrandOrderSummary());
     this.setTextIfChanged(this.inNeedText, this.getInNeedIngredientLines().join("\n"));
     this.setTextIfChanged(
       this.pantryText,
       [...this.cooking.getPantry()]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((item) => `${this.getIngredientIcon(item.id)} ${item.name}: ${item.quantity}`)
+        .sort((a, b) => this.compareContentNames(a.name, b.name))
+        .map((item) => t("stats.pantryLine", { icon: this.getIngredientIcon(item.id), name: contentName(item.name), quantity: item.quantity }))
         .join("\n"),
     );
     this.clampInNeedScroll();
@@ -14019,10 +14147,18 @@ export class GameScene extends Phaser.Scene {
     }
     this.setTextIfChanged(
       this.queueText,
-      `Orders: ${orderingTickets} ordering / ${queuedTickets} queued / ${cookingTickets} cooking / ${readyTickets} ready / ${deliveredTickets} unpaid / ${storedServings} stored`,
+      t("stockPanel.ordersLine", {
+        ordering: orderingTickets,
+        queued: queuedTickets,
+        cooking: cookingTickets,
+        ready: readyTickets,
+        delivered: deliveredTickets,
+        stored: storedServings,
+      }),
     );
 
       if (message) {
+        this.lastActionMessage = message;
         this.setTextIfChanged(this.messageText, this.formatActionMessage(message));
       }
     this.lastStatsUpdateMs = performance.now() - startedAt;
@@ -14030,7 +14166,7 @@ export class GameScene extends Phaser.Scene {
 
   private refreshCatalogUi(): void {
     this.menuCategoryHeaders.forEach(({ category, text }) => {
-      this.setTextIfChanged(text, `${this.formatRecipeCategory(category)} recipes ${this.getActiveRecipeCountForCategory(category)}/3 active`);
+      this.setTextIfChanged(text, t("stats.categoryRecipes", { category: this.formatRecipeCategory(category), count: this.getActiveRecipeCountForCategory(category) }));
     });
     this.menuButtons.forEach(({ recipeId, button, badge, upgradeButton }) => {
       const recipe = recipes.find((item) => item.id === recipeId);
@@ -14055,7 +14191,9 @@ export class GameScene extends Phaser.Scene {
     this.buildButtons.forEach(({ furnitureId, button, badge }) => {
       const furniture = getFurnitureDefinition(furnitureId);
       const unlocked = this.isFurnitureUnlocked(furniture);
-      const label = unlocked ? `${furniture.name}  $${this.getFurniturePurchaseCost(furniture)}` : `${furniture.name}  tier ${this.getFurnitureLuxuryTier(furniture)}`;
+      const label = unlocked
+        ? t("buildPanel.furnitureItem", { name: contentName(furniture.name), money: formatMoney(this.getFurniturePurchaseCost(furniture)) })
+        : t("buildPanel.furnitureTiered", { name: contentName(furniture.name), tier: this.getFurnitureLuxuryTier(furniture) });
       this.setTextIfChanged(button, label);
       button.setColor(unlocked ? "#3b2a21" : "#70675e");
       button.setAlpha(unlocked ? 1 : 0.62);
@@ -14071,7 +14209,7 @@ export class GameScene extends Phaser.Scene {
       }
       const ordered = this.cooking.getErrandOrder()[ingredient.id] ?? 0;
       const suffix = ordered > 0 && amount === 1 ? ` (${ordered})` : "";
-      const label = amount === 1 ? `${this.getIngredientIcon(ingredient.id)} ${this.shortIngredientName(ingredient.name)} +1${suffix}` : `+${amount}`;
+      const label = amount === 1 ? t("pantry.buyOne", { icon: this.getIngredientIcon(ingredient.id), name: this.shortIngredientName(contentName(ingredient.name)), suffix }) : t("pantry.buyMany", { count: amount });
       this.setTextIfChanged(button, label);
       button.setBackgroundColor(errandOrderIsFull ? "#8a7a64" : "#8f6251");
     });
@@ -14082,12 +14220,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.setTextIfChanged(this.hireChefButton, `Hire Chef $${this.getStaffHireCost("chef")}`);
-    this.setTextIfChanged(this.fireChefButton, `Fire Chef $${this.getStaffFireCost("chef")}`);
-    this.setTextIfChanged(this.hireWaiterButton, `Hire Waiter $${this.getStaffHireCost("waiter")}`);
-    this.setTextIfChanged(this.fireWaiterButton, `Fire Waiter $${this.getStaffFireCost("waiter")}`);
-    this.setTextIfChanged(this.hireErrandButton, `Hire Errand $${this.getStaffHireCost("errand")}`);
-    this.setTextIfChanged(this.fireErrandButton, `Fire Errand $${this.getStaffFireCost("errand")}`);
+    this.setTextIfChanged(this.hireChefButton, t("staff.hireChef", { money: formatMoney(this.getStaffHireCost("chef")) }));
+    this.setTextIfChanged(this.fireChefButton, t("staff.fireChef", { money: formatMoney(this.getStaffFireCost("chef")) }));
+    this.setTextIfChanged(this.hireWaiterButton, t("staff.hireWaiter", { money: formatMoney(this.getStaffHireCost("waiter")) }));
+    this.setTextIfChanged(this.fireWaiterButton, t("staff.fireWaiter", { money: formatMoney(this.getStaffFireCost("waiter")) }));
+    this.setTextIfChanged(this.hireErrandButton, t("staff.hireErrand", { money: formatMoney(this.getStaffHireCost("errand")) }));
+    this.setTextIfChanged(this.fireErrandButton, t("staff.fireErrand", { money: formatMoney(this.getStaffFireCost("errand")) }));
   }
 
   private refreshCatalogUiIfReady(): void {
@@ -14105,36 +14243,156 @@ export class GameScene extends Phaser.Scene {
     missingIngredients = this.getMissingIngredientsForRecipe(recipe),
   ): string {
     if (!unlocked) {
-      return `Locked T${this.getRecipeLuxuryTier(recipe)}: ${recipe.name}`;
+      return t("recipes.lockedLabel", { tier: this.getRecipeLuxuryTier(recipe), name: contentName(recipe.name) });
     }
 
-    const prefix = active ? "On" : "Off";
+    const prefix = active ? t("recipes.on") : t("recipes.off");
+    const recipeName = contentName(recipe.name);
     const preparedCount = this.cooking.getPreparedServingCount(recipe.id);
-    const price = this.getRecipeSellPrice(recipe);
+    const price = formatMoney(this.getRecipeSellPrice(recipe));
     if (preparedCount > 0) {
-      return `${prefix}: ${recipe.name} $${price} ready x${preparedCount}`;
+      return t("recipes.buttonReady", { prefix, name: recipeName, money: price, count: preparedCount });
     }
 
     if (missingIngredients.length === 0) {
-      return `${prefix}: ${recipe.name} $${price}`;
+      return t("recipes.buttonPlain", { prefix, name: recipeName, money: price });
     }
 
     const missingText = missingIngredients
       .slice(0, 2)
-      .map((ingredientId) => this.shortIngredientName(this.getIngredientName(ingredientId)))
+      .map((ingredientId) => this.shortIngredientName(contentName(this.getIngredientName(ingredientId))))
       .join(", ");
-    return `${prefix}: ${recipe.name} - need ${missingText}`;
+    return t("recipes.buttonMissing", { prefix, name: recipeName, missing: missingText });
   }
 
   private setTextIfChanged(text: Phaser.GameObjects.Text, value: string): void {
     const currentValue = (text.getData("rawText") as string | undefined) ?? text.text;
     if (currentValue !== value) {
       text.setText(value);
+      const wrapWidth = text.getData("wrapWidth") as number | undefined;
+      if (wrapWidth !== undefined) {
+        text.setWordWrapWidth(wrapWidth, shouldBreakByCharacter(value));
+      }
     }
   }
 
+  /** Word wrap that switches to character breaking for CJK text; re-applied on every setTextIfChanged. */
+  private wrapCJK<T extends Phaser.GameObjects.Text>(text: T, width: number): T {
+    text.setData("wrapWidth", width);
+    text.setWordWrapWidth(width, shouldBreakByCharacter(text.text));
+    return text;
+  }
+
+  /**
+   * Registers a text object for live re-translation. The producer runs once
+   * now and again on every language switch; the entry self-unregisters when
+   * the object is destroyed (panel rebuilds, closed modals), keeping the
+   * registry leak-free without explicit teardown.
+   */
+  private trackLocalizedText<T extends Phaser.GameObjects.Text>(
+    text: T,
+    producer: () => string,
+    wrapWidth?: number,
+  ): T {
+    const apply = (): void => {
+      const value = producer();
+      this.setTextIfChanged(text, value);
+      if (wrapWidth !== undefined) {
+        text.setWordWrapWidth(wrapWidth, shouldBreakByCharacter(value));
+      }
+    };
+    apply();
+    const entry = { apply };
+    this.localizedTextEntries.push(entry);
+    text.once(Phaser.GameObjects.Events.DESTROY, () => {
+      const index = this.localizedTextEntries.indexOf(entry);
+      if (index >= 0) {
+        this.localizedTextEntries.splice(index, 1);
+      }
+    });
+    return text;
+  }
+
+  private createLocalizedText(
+    x: number,
+    y: number,
+    producer: () => string,
+    style: Phaser.Types.GameObjects.Text.TextStyle,
+    wrapWidth?: number,
+  ): Phaser.GameObjects.Text {
+    return this.trackLocalizedText(this.add.text(x, y, "", style), producer, wrapWidth);
+  }
+
+  /** Static message helper: text whose value only depends on the locale. */
+  private localizedMessageText(
+    x: number,
+    y: number,
+    key: MessageKey,
+    style: Phaser.Types.GameObjects.Text.TextStyle,
+    params?: Record<string, string | number>,
+    wrapWidth?: number,
+  ): Phaser.GameObjects.Text {
+    return this.createLocalizedText(x, y, () => t(key, params), style, wrapWidth);
+  }
+
+  private refreshLocalizedText(): void {
+    for (const entry of [...this.localizedTextEntries]) {
+      entry.apply();
+    }
+    // Idempotent rebuilders (they destroy their old rows first) so content
+    // lists picked up from data catalogs re-resolve names in the new locale.
+    this.refreshBuildSubTabs();
+    this.refreshBuildList();
+    this.refreshStaffActionLabels();
+    this.refreshCatalogUi();
+    this.updateStats();
+    this.updateRatingWidget();
+    if (this.lastActionMessage) {
+      this.setTextIfChanged(this.messageText, this.formatActionMessage(translateLegacyText(this.lastActionMessage)));
+    }
+  }
+
+  private createLanguageButton(x: number, y: number, depth = uiDepth + 4): Phaser.GameObjects.Text {
+    const button = this.add.text(x, y, "", {
+      color: "#fffaf0",
+      backgroundColor: "#8f2f2f",
+      fixedWidth: 150,
+      fixedHeight: 32,
+      align: "center",
+      padding: { x: 8, y: 7 },
+      fontFamily: FONTS.display,
+      fontSize: "14px",
+      fontStyle: "bold",
+    });
+    this.trackLocalizedText(button, () => (getLanguage() === "zh" ? "Switch to EN" : "切换为中文"));
+    button.setInteractive({ useHandCursor: true });
+    button.setDepth(depth);
+    button.on("pointerdown", (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event?: Phaser.Types.Input.EventData,
+    ) => {
+      event?.stopPropagation();
+      this.audio.play("click");
+      toggleLanguage();
+    });
+    return button;
+  }
+
   private formatActionMessage(message: string): string {
-    return message.length > 74 ? `${message.slice(0, 71)}...` : message;
+    // Truncate by display units: CJK glyphs count as two so the clipped line
+    // fits the same pixel budget as English text.
+    let units = 0;
+    let cut = 0;
+    for (const char of message) {
+      units += containsCJK(char) ? 2 : 1;
+      if (units > 74) {
+        break;
+      }
+      cut += char.length;
+    }
+    return cut < message.length ? `${message.slice(0, cut)}...` : message;
   }
 
   private showToast(message: string, tone: "info" | "success" | "error" = "info"): void {
@@ -14153,7 +14411,7 @@ export class GameScene extends Phaser.Scene {
     background.strokeRoundedRect(0, 0, width, height, 8);
     const text = this.add.text(16, 12, message, {
       color: "#fffaf0",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "15px",
       fontStyle: "bold",
     }).setWordWrapWidth(width - 32);
@@ -14321,9 +14579,9 @@ export class GameScene extends Phaser.Scene {
 
 
   private shortIngredientName(name: string): string {
-    const aliases: Record<string, string> = {
-      Vegetables: "Veg",
-    };
+    const aliases: Record<string, string> = isChinese()
+      ? { 蔬菜: "菜" }
+      : { Vegetables: "Veg" };
 
     return aliases[name] ?? name;
   }
@@ -14437,22 +14695,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private formatRecipeCategory(category: RecipeDefinition["category"]): string {
-    const labels: Record<RecipeDefinition["category"], string> = {
-      appetizer: "App",
-      main: "Main",
-      dessert: "Dessert",
-      drink: "Drink",
-      side: "Side",
+    const labels: Record<RecipeDefinition["category"], MessageKey> = {
+      appetizer: "categories.appetizer",
+      main: "categories.main",
+      dessert: "categories.dessert",
+      drink: "categories.drink",
+      side: "categories.side",
     };
 
-    return labels[category];
+    return t(labels[category]);
   }
 
   private panelTextStyle(fontSize: number): Phaser.Types.GameObjects.Text.TextStyle {
     return {
       color: graphicsTheme.ink,
       fontSize: `${fontSize}px`,
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
     };
   }
 
@@ -14461,7 +14719,7 @@ export class GameScene extends Phaser.Scene {
       color: graphicsTheme.ink,
       fontSize: "24px",
       fontStyle: "bold",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
     };
   }
 
@@ -14470,7 +14728,7 @@ export class GameScene extends Phaser.Scene {
       color: graphicsTheme.ink,
       fontSize: "16px",
       fontStyle: "bold",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
     };
   }
 
@@ -14479,14 +14737,14 @@ export class GameScene extends Phaser.Scene {
       color: graphicsTheme.inkSoft,
       fontSize: "16px",
       fontStyle: "bold",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
     };
   }
 
   private actorBubbleStyle(): Phaser.Types.GameObjects.Text.TextStyle {
     return {
       color: graphicsTheme.bubbleText,
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONTS.ui,
       fontSize: "14px",
       fontStyle: "bold",
       backgroundColor: graphicsTheme.bubbleFill,
