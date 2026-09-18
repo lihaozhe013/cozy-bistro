@@ -81,7 +81,7 @@ ingredients).
 | Value | Current |
 | --- | ---: |
 | Minimum counted away-time | 60 s |
-| Cap | 6 h (plan §46 target is 8 h — tune in M8/M9) |
+| Cap | 8 h (plan §46, shipped in M9) |
 | Max guests in estimate | 500 |
 | Model | capacity = min(demand, chefOutput, waiterOutput) dishes/min; consumes pantry |
 | Offline trash drip | 1 drop roll / 3 min, 5% chance |

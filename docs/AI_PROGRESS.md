@@ -4,7 +4,8 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 9 — Offline progress refactor (deterministic reward, 8h cap).
+Milestones 0-9 complete. Remaining per plan: M10 asset polish (needs human
+art direction) and M11 release hardening; both start with a human playtest.
 
 ## Completed
 

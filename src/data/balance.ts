@@ -81,8 +81,8 @@ export const defaultExpansionCostMultiplier = 1.5;
 // --- Offline progress ---
 /** Minimum away-time before an offline summary is shown (seconds). */
 export const offlineMinElapsedSeconds = 60;
-/** Hard cap on counted offline time (plan §46 targets 8h; current build ships 6h). */
-export const offlineCapSeconds = 6 * 60 * 60;
+/** Hard cap on counted offline time (plan §46). */
+export const offlineCapSeconds = 8 * 60 * 60;
 /** Safety cap on guests simulated into the estimate per offline window. */
 export const offlineMaxServedGuests = 500;
 

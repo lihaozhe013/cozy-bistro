@@ -94,6 +94,11 @@ import { hydrateRatingHistoryFromSave, maxRatingHistory, ReputationSystem } from
 import { RestaurantGridSystem } from "../systems/RestaurantGridSystem";
 import { SaveSystem } from "../systems/SaveSystem";
 import { CURRENT_SAVE_VERSION } from "../persistence/SaveGame";
+import {
+  computeOfflineProgress,
+  type OfflineOutcome,
+  type OfflineSnapshot,
+} from "../simulation/progression/OfflineProgress";
 import { defaultPayrollPerStaffPerMinute, StaffSystem, type StaffRole } from "../systems/StaffSystem";
 import { UpgradeSystem } from "../simulation/progression/UpgradeSystem";
 import { SceneClock } from "../simulation/GameClock";
@@ -614,6 +619,8 @@ export class GameScene extends Phaser.Scene {
   private lastStatsUpdateAt = 0;
   private lastStatsUpdateMs = 0;
   private offlineSummaryMessage = "";
+  private offlineRewardModal: Phaser.GameObjects.Container | null = null;
+  private pendingOfflineOutcome: Exclude<OfflineOutcome, { kind: "too-short" }> | null = null;
   private skipSavedGuestsRestore = false;
   private currentSaveSlot = 1;
   private lastDebugUpdateAt = 0;
@@ -762,6 +769,9 @@ export class GameScene extends Phaser.Scene {
     this.updateStats(this.offlineSummaryMessage || "Welcome shift ready: a chef, waiter, seats, and pantry are already set up.");
     if (this.offlineSummaryMessage) {
       this.persistQuietly();
+    }
+    if (this.pendingOfflineOutcome) {
+      this.openOfflineRewardModal();
     }
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
@@ -9850,20 +9860,50 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const elapsedSeconds = Math.floor((Date.now() - save.lastSavedAt) / 1000);
-    if (elapsedSeconds < offlineMinElapsedSeconds) {
+    const outcome = computeOfflineProgress(save.lastSavedAt, Date.now(), this.buildOfflineSnapshot());
+    if (outcome.kind === "too-short") {
       return;
     }
 
-    const cappedSeconds = Math.min(elapsedSeconds, offlineCapSeconds);
-    const offlineMinutes = cappedSeconds / 60;
-    if (!this.restaurantOpen) {
-      if (this.autoShopEnabled && (this.staff.errandBoys ?? 0) > 0) {
-        this.applyOfflineShopping(Math.floor(this.getShoppingIngredientsPerMinute() * offlineMinutes));
-      }
-      this.offlineSummaryMessage = `Away for ${this.formatOfflineDuration(cappedSeconds)}. Restaurant was closed, so no new guests entered.`;
+    this.pendingOfflineOutcome = outcome;
+    const away = `Away for ${this.formatOfflineDuration(outcome.cappedSeconds)}`;
+    if (outcome.shoppingItems > 0) {
+      this.applyOfflineShopping(outcome.shoppingItems);
+    }
+
+    if (outcome.kind !== "served") {
+      this.offlineSummaryMessage =
+        outcome.kind === "closed"
+          ? `${away}. Restaurant was closed, so no new guests entered.`
+          : `${away}. No service progress: add seats, chefs/stoves, waiters, or menu recipes.`;
       return;
     }
+
+    const pantry = this.cooking.getPantryRaw();
+    for (const [ingredientId, count] of Object.entries(outcome.ingredientsUsed)) {
+      const stock = pantry.find((item) => item.id === ingredientId);
+      if (stock) {
+        stock.quantity = Math.max(0, stock.quantity - count);
+      }
+    }
+    if (outcome.revenue > 0) {
+      this.earnMoney(outcome.revenue, "offline");
+    }
+    for (let index = 0; index < outcome.served; index += 1) {
+      this.recordGuestRating(outcome.ratingScore);
+    }
+    this.customers.recordServed(outcome.served);
+    this.guests.forEach((guest) => guest.container.destroy());
+    this.guests = [];
+    this.tickets = [];
+    this.skipSavedGuestsRestore = outcome.served > 0 || outcome.maxServedGuests > 0;
+    this.offlineSummaryMessage =
+      outcome.served > 0
+        ? `${away}. Staff served ${outcome.served} guests and earned $${outcome.revenue}.`
+        : `${away}. No guests were served because ingredients ran out.`;
+  }
+
+  private buildOfflineSnapshot(): OfflineSnapshot {
     const activeRecipes = this.getActiveMenuRecipes();
     const diningSeats = this.getDiningSeats().filter((seat) => !seat.disabled).length;
     const stoves = this.getStoveCount();
@@ -9876,41 +9916,86 @@ export class GameScene extends Phaser.Scene {
     const spawnRate = this.customers.estimateSpawnRate(attractiveness, diningSeats, this.cooking.getUnlockedRecipeIds().length, this.getAverageRating());
     const demand = Math.round(this.getCurrentCustomerDemandPerMinute(diningSeats, 0, spawnRate) * expectedDishesPerCustomer);
     const capacityPerMinute = Math.max(0, Math.min(demand, chefOutput, waiterOutput));
-    if (activeRecipes.length === 0 || capacityPerMinute <= 0) {
-      this.offlineSummaryMessage = `Away for ${this.formatOfflineDuration(cappedSeconds)}. No service progress: add seats, chefs/stoves, waiters, or menu recipes.`;
+
+    const shoppingEnabled = this.autoShopEnabled && (this.staff.errandBoys ?? 0) > 0;
+    const pantry: Record<string, number> = {};
+    this.cooking.getPantry().forEach((item) => {
+      pantry[item.id] = item.quantity;
+    });
+
+    return {
+      restaurantOpen: this.restaurantOpen,
+      capacityDishesPerMinute: capacityPerMinute,
+      demandDishesPerMinute: demand,
+      chefOutputDishesPerMinute: chefOutput,
+      waiterOutputDishesPerMinute: waiterOutput,
+      recipes: activeRecipes.map((recipe) => {
+        const ingredientCounts: Record<string, number> = {};
+        recipe.ingredients.forEach((ingredient) => {
+          ingredientCounts[ingredient] = (ingredientCounts[ingredient] ?? 0) + 1;
+        });
+        return { id: recipe.id, sellPrice: this.getRecipeSellPrice(recipe), ingredientCounts };
+      }),
+      pantry,
+      shoppingPerMinute: shoppingEnabled ? this.getShoppingIngredientsPerMinute() : 0,
+    };
+  }
+
+  private openOfflineRewardModal(): void {
+    const outcome = this.pendingOfflineOutcome;
+    this.pendingOfflineOutcome = null;
+    if (!outcome || this.offlineRewardModal) {
       return;
     }
 
-    if (this.autoShopEnabled && (this.staff.errandBoys ?? 0) > 0) {
-      this.applyOfflineShopping(Math.floor(this.getShoppingIngredientsPerMinute() * offlineMinutes));
+    const modal = this.add.container(0, 0).setDepth(3150);
+    const shade = this.add.rectangle(gameWidth / 2, gameHeight / 2, gameWidth, gameHeight, 0x1f2528, 0.38).setInteractive();
+    shade.on("pointerdown", (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event?: Phaser.Types.Input.EventData,
+    ) => event?.stopPropagation());
+
+    const panelX = 520;
+    const panelY = 302;
+    const panelWidth = 560;
+    const panelHeight = 232;
+    const panel = this.add.graphics();
+    panel.fillStyle(panelFill, 1);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
+    panel.fillStyle(panelHeader, 1);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, 44, 10);
+    panel.fillRect(panelX, panelY + 30, panelWidth, 14);
+    panel.lineStyle(2, panelStroke, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
+
+    const title = this.add.text(panelX + 24, panelY + 10, "While You Were Away", this.sectionTitleStyle());
+    const lines: string[] = [`You were gone for ${this.formatOfflineDuration(outcome.cappedSeconds)}.`];
+    if (outcome.kind === "closed") {
+      lines.push("The restaurant was closed, so no new guests entered.");
+    } else if (outcome.kind === "no-service") {
+      lines.push("No service progress: add seats, chefs/stoves, waiters, or menu recipes.");
+    } else if (outcome.served > 0) {
+      lines.push(`Staff served ${outcome.served} guests and earned $${outcome.revenue}.`);
+    } else {
+      lines.push("No guests were served because ingredients ran out.");
     }
-
-    const maxServed = Math.min(offlineMaxServedGuests, Math.floor(capacityPerMinute * offlineMinutes));
-    let served = 0;
-    let revenue = 0;
-    for (let index = 0; index < maxServed; index += 1) {
-      const recipe = activeRecipes[index % activeRecipes.length];
-      if (!this.hasIngredients(recipe)) {
-        break;
-      }
-
-      this.consumeIngredients(recipe, false);
-      const payment = this.getRecipeSellPrice(recipe);
-      this.earnMoney(payment, "offline");
-      revenue += payment;
-      served += 1;
-      this.recordGuestRating(this.getOfflineRating(capacityPerMinute, demand, chefOutput, waiterOutput));
+    if (outcome.shoppingItems > 0) {
+      lines.push(`Errand crew restocked ${outcome.shoppingItems} ingredients.`);
     }
+    const body = this.add
+      .text(panelX + 24, panelY + 66, lines.join("\n"), this.panelTextStyle(15))
+      .setWordWrapWidth(panelWidth - 48)
+      .setLineSpacing(5);
+    const okay = this.createActionButton("Back to the floor", panelX + 200, panelY + 176, () => {
+      modal.destroy();
+      this.offlineRewardModal = null;
+    }, 160, 32, 14);
 
-    this.customers.recordServed(served);
-    this.guests.forEach((guest) => guest.container.destroy());
-    this.guests = [];
-    this.tickets = [];
-    this.skipSavedGuestsRestore = served > 0 || maxServed > 0;
-    this.offlineSummaryMessage =
-      served > 0
-        ? `Away for ${this.formatOfflineDuration(cappedSeconds)}. Staff served ${served} guests and earned $${revenue}.`
-        : `Away for ${this.formatOfflineDuration(cappedSeconds)}. No guests were served because ingredients ran out.`;
+    modal.add([shade, panel, title, body, okay]);
+    this.audio.play("unlock");
+    this.offlineRewardModal = modal;
   }
 
   private applyOfflineShopping(maxItems: number): void {
