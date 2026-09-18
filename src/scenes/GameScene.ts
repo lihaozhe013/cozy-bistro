@@ -107,6 +107,8 @@ import { expansionDefinitions, starterCells, type ExpansionDefinition } from "..
 import { getCustomerArchetype, type CustomerArchetypeId } from "../data/customers";
 import { expansionCost, expansionRequiredForTier, luxuryTierForExpansion } from "../simulation/progression/Expansion";
 import { gameEvents } from "../simulation/EventBus";
+import { FeedbackSystem } from "../systems/FeedbackSystem";
+import { AudioSystem } from "../systems/AudioSystem";
 
 const furnitureAtlasImage = new URL("../assets/atlases/furniture.png", import.meta.url).href;
 const furnitureAtlasData = new URL("../assets/atlases/furniture.json", import.meta.url).href;
@@ -448,6 +450,10 @@ export class GameScene extends Phaser.Scene {
   private customers!: CustomerSystem;
   private dayCycle!: DayCycleSystem;
   private sceneClock = new SceneClock();
+  private feedback!: FeedbackSystem;
+  private uiFeedback!: FeedbackSystem;
+  private audio = new AudioSystem();
+  private eventBusUnsubscribers: Array<() => void> = [];
   private saveSystem!: SaveSystem;
   private staffSystem!: StaffSystem;
   private upgrades!: UpgradeSystem;
@@ -748,6 +754,7 @@ export class GameScene extends Phaser.Scene {
     this.rebuildStaffActors();
     this.restoreStaffActorPositions(save);
     this.restoreActiveGuests(save);
+    this.setupFeedbackLayer();
     this.updateStats(this.offlineSummaryMessage || "Welcome shift ready: a chef, waiter, seats, and pantry are already set up.");
     if (this.offlineSummaryMessage) {
       this.persistQuietly();
@@ -783,6 +790,92 @@ export class GameScene extends Phaser.Scene {
       this.flushQuietSave();
       window.removeEventListener("beforeunload", flushBeforePageExit);
       document.removeEventListener("visibilitychange", flushWhenHidden);
+    });
+  }
+
+  private setupFeedbackLayer(): void {
+    this.feedback = new FeedbackSystem(this, this.actorLayer, 990);
+    const uiLayer = this.add.container(0, 0).setDepth(uiDepth + 900);
+    this.uiFeedback = new FeedbackSystem(this, uiLayer, uiDepth + 900);
+
+    const savedVolume = localStorage.getItem("cozy-bistro-sound");
+    if (savedVolume !== null) {
+      this.audio.setVolume(Number(savedVolume) || 0);
+    }
+    this.input.on("pointerdown", () => this.audio.unlock());
+    this.input.keyboard?.on("keydown-M", () => {
+      const next = this.audio.volume > 0 ? 0 : 0.5;
+      this.audio.setVolume(next);
+      try {
+        localStorage.setItem("cozy-bistro-sound", String(next));
+      } catch {
+        // private mode: mute still works this session
+      }
+      this.updateStats(next > 0 ? "Sound on (M toggles)" : "Sound muted (M toggles)");
+    });
+
+    const off = (fn: () => void): void => {
+      this.eventBusUnsubscribers.push(fn);
+    };
+    off(
+      gameEvents.on("customer-paid", ({ amount, tip, x, y }) => {
+        if (x !== undefined && y !== undefined) {
+          this.feedback.showFloatingText({ x, y: y - 60, text: `+$${amount}`, tone: "money" });
+          if (tip > 0) {
+            this.feedback.showFloatingText({ x: x + 26, y: y - 42, text: `+$${tip} tip`, tone: "rep" });
+          }
+        }
+        this.audio.play("coin");
+      }),
+    );
+    off(
+      gameEvents.on("order-ready", ({ x, y }) => {
+        if (x !== undefined && y !== undefined) {
+          this.feedback.showFloatingText({ x, y: y - 26, text: "Ready!", tone: "info" });
+        }
+        this.audio.play("ready");
+      }),
+    );
+    off(
+      gameEvents.on("upgrade-purchased", ({ upgradeId, level }) => {
+        this.uiFeedback.showFloatingText({
+          x: gameWidth / 2,
+          y: gameHeight / 2 - 40,
+          text: `${upgradeId.toUpperCase()} LEVEL ${level}!`,
+          tone: "level",
+        });
+        this.audio.play("upgrade");
+      }),
+    );
+    off(
+      gameEvents.on("area-unlocked", ({ name, level }) => {
+        this.uiFeedback.showFloatingText({
+          x: gameWidth / 2,
+          y: gameHeight / 2 - 80,
+          text: `NEW AREA: ${name.toUpperCase()}!`,
+          tone: "level",
+        });
+        this.uiFeedback.showBurst(gameWidth / 2, gameHeight / 2 - 60, 0xffd966, 18, 120);
+        this.uiFeedback.showBurst(gameWidth / 2, gameHeight / 2 - 60, 0xfff1b8, 14, 80);
+        this.updateStats(`Unlocked ${name} (expansion ${level})`);
+        this.audio.play("unlock");
+      }),
+    );
+    off(
+      gameEvents.on("staff-hired", ({ role }) => {
+        this.uiFeedback.showFloatingText({
+          x: gameWidth / 2,
+          y: gameHeight / 2 - 10,
+          text: `New ${role} joined!`,
+          tone: "rep",
+        });
+      }),
+    );
+    this.events.once("shutdown", () => {
+      for (const unsubscribe of this.eventBusUnsubscribers) {
+        unsubscribe();
+      }
+      this.eventBusUnsubscribers = [];
     });
   }
 
@@ -3362,6 +3455,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     button.setInteractive({ useHandCursor: true });
+    button.on("pointerdown", () => this.audio.play("click"));
     button.on("pointerdown", (
       _pointer: Phaser.Input.Pointer,
       _localX: number,
@@ -10442,7 +10536,6 @@ export class GameScene extends Phaser.Scene {
       ticket.serviceKind = undefined;
       ticket.serviceStartedAt = undefined;
       ticket.readyAt = this.time.now;
-      gameEvents.emit("order-ready", { ticketId: ticket.id, recipeId: ticket.recipe.id });
       const stovePlatePoint = this.getChefStationPlatePoint(ticket.stationIndex ?? stationIndex);
       ticket.readyPlate = this.createReadyFoodPlateAt(
         stovePlatePoint.x,
@@ -10450,6 +10543,12 @@ export class GameScene extends Phaser.Scene {
         0.82,
         this.getReadyPlateSortY(ticket.stationIndex ?? stationIndex),
       );
+      gameEvents.emit("order-ready", {
+        ticketId: ticket.id,
+        recipeId: ticket.recipe.id,
+        x: stovePlatePoint.x,
+        y: stovePlatePoint.y,
+      });
       this.recordRateSample(this.recentCookedDishes, 1);
       chef.task = "idle";
       chef.busyUntil = this.time.now + 400;
@@ -12153,7 +12252,13 @@ export class GameScene extends Phaser.Scene {
             ? Math.max(1, Math.round(bill * effects.tipMultiplier))
             : 0;
         this.earnMoney(bill + tip, "payment");
-        gameEvents.emit("customer-paid", { guestId: guest.id, amount: bill + tip, tip });
+        gameEvents.emit("customer-paid", {
+          guestId: guest.id,
+          amount: bill + tip,
+          tip,
+          x: guest.container.x,
+          y: guest.container.y,
+        });
         this.updateStats(
           tip > 0 ? `Payment collected +$${bill} (+$${tip} tip)` : `Payment collected +$${bill}`,
         );

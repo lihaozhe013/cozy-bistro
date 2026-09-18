@@ -8,9 +8,9 @@ export type GameEventMap = {
   "customer-arrived": { guestId: string };
   "customer-seated": { guestId: string; seatUid: string };
   "customer-left-angry": { guestId: string };
-  "customer-paid": { guestId: string; amount: number; tip: number };
+  "customer-paid": { guestId: string; amount: number; tip: number; x?: number; y?: number };
   "order-created": { ticketId: string; guestId: string; recipeId: string };
-  "order-ready": { ticketId: string; recipeId: string };
+  "order-ready": { ticketId: string; recipeId: string; x?: number; y?: number };
   "order-served": { ticketId: string; guestId: string; recipeId: string };
   "order-cancelled": { ticketId: string; reason: string };
   "upgrade-purchased": { upgradeId: string; level: number; costText: string };

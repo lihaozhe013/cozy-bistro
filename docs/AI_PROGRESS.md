@@ -4,7 +4,7 @@ Journal of the autonomous agent executing `master_plan.md`.
 
 ## Current milestone
 
-Milestone 7 — Juice pass (floating text + feedback).
+Milestone 8 — Balance/instrumentation pass (sim speed controls, metrics).
 
 ## Completed
 
@@ -101,9 +101,25 @@ Milestone 7 — Juice pass (floating text + feedback).
   - Recipes (36+ across 5 tiers), stove/counter station variants, 10
     upgrades: already satisfied by existing content; M6 checklist complete.
 
+- **M7 Juice pass** (2026-09-17):
+  - `FeedbackSystem` (world + UI layers): reusable floating text (money/rep/
+    level/info tones), scale bounces, and texture-free burst particles; all
+    tween-managed lifetimes.
+  - `AudioSystem`: zero-asset WebAudio synth SFX (coin, upgrade, unlock,
+    ready, click) unlocked on first gesture; M mutes, volume persisted in
+    localStorage (device-level setting kept out of gameplay saves).
+  - Scene subscribes to gameEvents: +$N/tip floats at payers, "Ready!" at
+    stoves, LEVEL/banner floats + bursts on upgrades and area unlocks, staff
+    join float, button click SFX; all subscriptions unsubscribed on scene
+    shutdown so slot reloads cannot double-fire.
+  - Boot smoke: clean Phaser 4 WebGL boot, zero uncaught errors with all
+    handlers live (full visual verification is manual — headless Chrome
+    cannot observe canvas pixels; flagged under Known issues).
+
 ## In progress
 
-- M7: reusable floating-text/feedback layer subscribing to gameEvents.
+- M8: debug overlay F2 toggle + sim-speed clock scaling decision; metrics
+  already computed by sim tests (revenue, utilization via staff work/idle).
 
 ## Next
 
@@ -129,6 +145,9 @@ Milestone 7 — Juice pass (floating text + feedback).
    directly — no Phaser boot (plan §56).
 
 ## Known issues
+
+- Headless smoke checks only page boot/console; floating-text visuals and
+  SFX need a human eyeball/ear pass at `pnpm dev` (agent cannot verify pixels).
 
 - `GameScene.ts` size violates plan §76; extraction is multi-session work.
 - Phaser config runs at 30 FPS (`forceSetTimeOut`); evaluate 60 FPS later
